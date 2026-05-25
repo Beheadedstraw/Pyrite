@@ -90,6 +90,12 @@ __attribute__((weak)) long pyrite_kernel_cls(void) {
     return 0;
 }
 
+__attribute__((weak)) char *pyrite_kernel_input(const char *prompt) {
+    (void)prompt;
+    static char empty[1] = {0};
+    return empty;
+}
+
 static unsigned char pyrite_heap[64 * 1024];
 static size_t pyrite_heap_used = 0;
 static unsigned char pyrite_temp_arena[8 * 1024];
