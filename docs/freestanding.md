@@ -52,6 +52,7 @@ Current bindings:
 - `kernel.println(value)`
 - `kernel.cls()`
 - `kernel.input(prompt)`
+- `kernel.color(value)`
 - `kernel.panic(message)`
 - `kernel.halt()`
 - `kernel.write_port(port, value)`

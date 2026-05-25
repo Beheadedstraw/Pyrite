@@ -96,6 +96,11 @@ __attribute__((weak)) char *pyrite_kernel_input(const char *prompt) {
     return empty;
 }
 
+__attribute__((weak)) long pyrite_kernel_color(long value) {
+    (void)value;
+    return 0;
+}
+
 __attribute__((weak)) long pyrite_keyboard_read_scancode(void) {
     return 0;
 }
