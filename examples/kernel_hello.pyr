@@ -1,6 +1,7 @@
 import kernel
 
 def main():
+    kernel.cls()
     kernel.println("hello from pyrite kernel mode")
     print("builtin print still works")
     return 0

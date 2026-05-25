@@ -46,6 +46,7 @@ Current bindings:
 
 - `kernel.print(value)`
 - `kernel.println(value)`
+- `kernel.cls()`
 - `kernel.panic(message)`
 - `kernel.halt()`
 - `kernel.write_port(port, value)`

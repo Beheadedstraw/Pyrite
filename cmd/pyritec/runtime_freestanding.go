@@ -79,6 +79,17 @@ __attribute__((weak, noreturn)) void pyrite_kernel_hang(void) {
     }
 }
 
+__attribute__((weak)) long pyrite_kernel_cls(void) {
+    pyrite_kernel_putchar(27);
+    pyrite_kernel_putchar('[');
+    pyrite_kernel_putchar('2');
+    pyrite_kernel_putchar('J');
+    pyrite_kernel_putchar(27);
+    pyrite_kernel_putchar('[');
+    pyrite_kernel_putchar('H');
+    return 0;
+}
+
 static unsigned char pyrite_heap[64 * 1024];
 static size_t pyrite_heap_used = 0;
 static unsigned char pyrite_temp_arena[8 * 1024];
