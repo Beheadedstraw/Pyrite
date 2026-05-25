@@ -1,0 +1,13 @@
+# Freestanding kernel bindings.
+#
+# These names intentionally stay Python-shaped: lower-case, snake_case, and
+# small verbs. The C runtime provides weak hooks that a real kernel can replace.
+
+native def print(value: string) -> int = pyrite_kernel_print
+native def println(value: string) -> int = pyrite_kernel_println
+native def panic(message: string) -> int = pyrite_kernel_panic
+native def halt() -> int = pyrite_kernel_halt
+native def write_port(port: int, value: int) -> int = pyrite_kernel_write_port
+native def read_port(port: int) -> int = pyrite_kernel_read_port
+native def outb(port: int, value: int) -> int = pyrite_kernel_outb
+native def inb(port: int) -> int = pyrite_kernel_inb

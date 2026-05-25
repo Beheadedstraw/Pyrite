@@ -10,6 +10,7 @@ small compiled runtime.
 
 - [Language Basics](language.md): imports, variables, typing, constants, globals
 - [Native Bindings](native-bindings.md): writing Pyrite modules backed by runtime C
+- [Freestanding Kernel Target](freestanding.md): compiling Pyrite into a kernel object
 - [Functions And Control Flow](functions-control-flow.md): `def`, returns,
   `if`, `while`, loops, `try` / `except`
 - [Concurrency And Routines](concurrency.md): `routine(...)`, `mux()`, locking

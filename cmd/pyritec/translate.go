@@ -189,6 +189,9 @@ func (c *Compiler) loadModule(name string) error {
 	if c.loadedModules[name] {
 		return nil
 	}
+	if c.target == "freestanding" && freestandingBlockedModule(name) {
+		return fmt.Errorf("module %s is hosted-only under --target freestanding", name)
+	}
 	c.loadedModules[name] = true
 	for _, path := range []string{
 		filepath.Join("stdlib", name+".pyr"),
@@ -206,6 +209,15 @@ func (c *Compiler) loadModule(name string) error {
 		}
 	}
 	return nil
+}
+
+func freestandingBlockedModule(name string) bool {
+	switch name {
+	case "file", "floats", "http", "ints", "json", "net", "random", "regex", "routines", "strings", "time", "xml":
+		return true
+	default:
+		return false
+	}
 }
 
 func samePath(left, right string) bool {
@@ -333,13 +345,21 @@ func parseNativeFunctionDef(lineNo int, trimmed string, indent int, moduleName s
 func (c *Compiler) compileMain(fn *functionDef) error {
 	c.currentFunction = "main"
 	defer func() { c.currentFunction = "" }()
-	c.body.WriteString("int main(void) {\n")
+	if c.target == "freestanding" {
+		c.body.WriteString("long kmain(void) {\n")
+	} else {
+		c.body.WriteString("int main(void) {\n")
+	}
 	c.body.WriteString("    char *__pyrite_error __attribute__((unused)) = NULL;\n")
 	if err := c.compileLines(fn.body, fn.indent); err != nil {
 		return err
 	}
 	c.emitDefers()
-	c.body.WriteString("    return 0;\n")
+	if c.target == "freestanding" {
+		c.body.WriteString("    pyrite_kernel_halt();\n")
+	} else {
+		c.body.WriteString("    return 0;\n")
+	}
 	c.body.WriteString("}\n")
 	return nil
 }

@@ -107,6 +107,15 @@ make compile SRC=examples/any.pyr OUT=build/any
 make compile PYRITEC_FLAGS=--trace-defer
 ```
 
+Compile a freestanding kernel object:
+
+```sh
+build/pyritec --target freestanding examples/kernel_hello.pyr -o build/kernel_hello.o
+```
+
+The freestanding target emits `long kmain(void)` and a tiny no-libc runtime.
+See [docs/freestanding.md](docs/freestanding.md).
+
 ## Benchmarks
 
 Paired Pyrite/Python benchmark files live under [benchmarks](benchmarks/).
