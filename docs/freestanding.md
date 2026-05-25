@@ -34,6 +34,10 @@ The first freestanding slice supports basic Pyrite code: integers, booleans,
 strings, lists, helper functions, `if`, `while`, `foreach`, `print`, and the
 `kernel` module.
 
+Freestanding strings support `left + right`, `chr(code)`, `value.len()`, and
+`value.slice(start, end)`, which is enough to build small input buffers in
+Pyrite code.
+
 Avoid these hosted modules in kernel code for now: `file`, `net`, `http`,
 `regex`, `routines`, `random`, and `time`.
 

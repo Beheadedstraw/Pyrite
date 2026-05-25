@@ -100,24 +100,6 @@ __attribute__((weak)) long pyrite_keyboard_read_scancode(void) {
     return 0;
 }
 
-__attribute__((weak)) long pyrite_keyboard_clear(void) {
-    return 0;
-}
-
-__attribute__((weak)) long pyrite_keyboard_append_ascii(long ascii) {
-    (void)ascii;
-    return 0;
-}
-
-__attribute__((weak)) long pyrite_keyboard_backspace(void) {
-    return 0;
-}
-
-__attribute__((weak)) char *pyrite_keyboard_value(void) {
-    static char empty[1] = {0};
-    return empty;
-}
-
 static unsigned char pyrite_heap[64 * 1024];
 static size_t pyrite_heap_used = 0;
 static unsigned char pyrite_temp_arena[8 * 1024];
@@ -133,6 +115,46 @@ static size_t pyrite_strlen(const char *s) {
 
 static long pyrite_string_len(const char *s) {
     return (long)pyrite_strlen(s);
+}
+
+static void *pyrite_malloc(size_t bytes);
+static void pyrite_memcpy(void *dst, const void *src, size_t n);
+
+static char *pyrite_string_concat(const char *left, const char *right) {
+    if (!left) left = "";
+    if (!right) right = "";
+    size_t left_len = pyrite_strlen(left);
+    size_t right_len = pyrite_strlen(right);
+    char *out = pyrite_malloc(left_len + right_len + 1);
+    if (!out) return "";
+    pyrite_memcpy(out, left, left_len);
+    pyrite_memcpy(out + left_len, right, right_len);
+    out[left_len + right_len] = '\0';
+    return out;
+}
+
+static char *pyrite_chr(long value) {
+    char *out = pyrite_malloc(2);
+    if (!out) return "";
+    if (value < 0 || value > 127) value = 0;
+    out[0] = (char)value;
+    out[1] = '\0';
+    return out;
+}
+
+static char *pyrite_string_slice(const char *s, long start, long end) {
+    if (!s) s = "";
+    long len = (long)pyrite_strlen(s);
+    if (start < 0) start = 0;
+    if (end < start) end = start;
+    if (start > len) start = len;
+    if (end > len) end = len;
+    long out_len = end - start;
+    char *out = pyrite_malloc((size_t)out_len + 1);
+    if (!out) return "";
+    for (long i = 0; i < out_len; i++) out[i] = s[start + i];
+    out[out_len] = '\0';
+    return out;
 }
 
 int strcmp(const char *left, const char *right) {

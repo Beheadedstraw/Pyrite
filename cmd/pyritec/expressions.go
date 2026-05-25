@@ -93,6 +93,13 @@ func (c *Compiler) binaryNumberExpr(s string) (string, string, bool, error) {
 		if idx < 0 {
 			continue
 		}
+		if op == '+' {
+			leftCode, leftKind, leftErr := c.expr(s[:idx])
+			rightCode, rightKind, rightErr := c.expr(s[idx+1:])
+			if leftErr == nil && rightErr == nil && leftKind == "string" && rightKind == "string" {
+				return fmt.Sprintf("pyrite_string_concat(%s, %s)", leftCode, rightCode), "string", true, nil
+			}
+		}
 		left, leftKind, err := c.numberExpr(s[:idx])
 		if err != nil {
 			return "", "", true, err
@@ -317,6 +324,7 @@ type compilerIntrinsicSpec struct {
 
 func compilerIntrinsics() map[string]compilerIntrinsicSpec {
 	return map[string]compilerIntrinsicSpec{
+		"chr":                   {"pyrite_chr", []string{"int"}, "string"},
 		"__json_stringify_any":  {"pyrite_json_stringify_any", []string{"any"}, "string"},
 		"__json_stringify_list": {"pyrite_json_stringify_list", []string{"list_any"}, "string"},
 		"__json_parse_any":      {"pyrite_json_parse_any", []string{"string"}, "any"},
