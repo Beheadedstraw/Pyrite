@@ -88,7 +88,7 @@ func (c *Compiler) expr(s string) (string, string, error) {
 }
 
 func (c *Compiler) binaryNumberExpr(s string) (string, string, bool, error) {
-	for _, ops := range [][]byte{{'+', '-'}, {'*', '/'}} {
+	for _, ops := range [][]byte{{'&'}, {'+', '-'}, {'*', '/'}} {
 		idx, op := findTopLevelOperator(s, ops)
 		if idx < 0 {
 			continue
@@ -109,6 +109,12 @@ func (c *Compiler) binaryNumberExpr(s string) (string, string, bool, error) {
 			return "", "", true, err
 		}
 		result := numericResult(leftKind, rightKind)
+		if op == '&' {
+			if leftKind != "int" || rightKind != "int" {
+				return "", "", true, fmt.Errorf("bitwise & expects int operands")
+			}
+			return fmt.Sprintf("(%s & %s)", left, right), "int", true, nil
+		}
 		if op == '/' {
 			result = "float"
 			return fmt.Sprintf("((double)(%s) / (double)(%s))", left, right), result, true, nil
