@@ -168,8 +168,12 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 		return fmt.Errorf("line %d: cannot reassign immutable %s", lineNo, name)
 	}
 
+	cName := name
 	if strings.Contains(name, ".") {
-		return c.emitMemberAssign(lineNo, name, value)
+		if _, exists := c.types[name]; !exists {
+			return c.emitMemberAssign(lineNo, name, value)
+		}
+		cName = c.variableCName(name)
 	}
 
 	if strings.HasSuffix(value, ").defer()") {
@@ -194,7 +198,7 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 	existingBefore := c.types[name]
 	preReleased := false
 	if existingBefore != "" && c.releasableKind(existingBefore) && existingBefore != "string" && !assignmentValueReferencesName(value, name) {
-		c.emitReleaseValue(name, existingBefore)
+		c.emitReleaseValue(cName, existingBefore)
 		preReleased = true
 	}
 
@@ -236,32 +240,32 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 		c.consts[name] = true
 	}
 	if existing != "" && c.releasableKind(storeKind) && storeKind != "string" && !preReleased {
-		c.emitReleaseValue(name, storeKind)
+		c.emitReleaseValue(cName, storeKind)
 	}
 	c.types[name] = storeKind
 	if storeKind == "string" {
 		if decl != "" {
-			c.body.WriteString(fmt.Sprintf("    %s%s = NULL;\n", decl, name))
+			c.body.WriteString(fmt.Sprintf("    %s%s = NULL;\n", decl, cName))
 		}
-		c.body.WriteString(fmt.Sprintf("    pyrite_assign_string(&%s, %s);\n", name, code))
+		c.body.WriteString(fmt.Sprintf("    pyrite_assign_string(&%s, %s);\n", cName, code))
 	} else {
-		c.body.WriteString(fmt.Sprintf("    %s%s = %s;\n", decl, name, code))
+		c.body.WriteString(fmt.Sprintf("    %s%s = %s;\n", decl, cName, code))
 	}
 	if checkpoint {
 		if storeKind == "list_any" {
-			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_any_list(%s, &%s);\n", checkpointName, name))
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_any_list(%s, &%s);\n", checkpointName, cName))
 		} else if isClassKind(storeKind) {
-			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_class_object(%s, %s);\n", checkpointName, name))
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_class_object(%s, %s);\n", checkpointName, cName))
 		} else {
-			c.body.WriteString(fmt.Sprintf("    pyrite_release_since(%s, %s);\n", checkpointName, c.keepPointer(name, storeKind)))
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since(%s, %s);\n", checkpointName, c.keepPointer(cName, storeKind)))
 		}
 		c.body.WriteString("    pyrite_temp_reset();\n")
 	}
 	if declared {
-		c.registerBlockCleanup(name, storeKind)
+		c.registerBlockCleanup(cName, storeKind)
 	}
 	if isDeferredResource(storeKind) {
-		c.emitResourceOpenCheck(name, storeKind)
+		c.emitResourceOpenCheck(cName, storeKind)
 	}
 	return nil
 }

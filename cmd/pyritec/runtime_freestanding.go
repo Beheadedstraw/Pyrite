@@ -109,6 +109,10 @@ static size_t pyrite_strlen(const char *s) {
     return n;
 }
 
+static long pyrite_string_len(const char *s) {
+    return (long)pyrite_strlen(s);
+}
+
 int strcmp(const char *left, const char *right) {
     unsigned char l;
     unsigned char r;

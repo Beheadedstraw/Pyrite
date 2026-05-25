@@ -75,11 +75,14 @@ func (c *Compiler) expr(s string) (string, string, error) {
 	if code, kind, ok, err := c.numericMethodCall(s); ok || err != nil {
 		return code, kind, err
 	}
+	if kind, ok := c.types[s]; ok {
+		if strings.Contains(s, ".") {
+			return c.variableCName(s), kind, nil
+		}
+		return s, kind, nil
+	}
 	if strings.Contains(s, ".") {
 		return c.memberExpr(s)
-	}
-	if kind, ok := c.types[s]; ok {
-		return s, kind, nil
 	}
 	return "", "", fmt.Errorf("unsupported expression %q", s)
 }
