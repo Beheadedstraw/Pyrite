@@ -96,6 +96,28 @@ __attribute__((weak)) char *pyrite_kernel_input(const char *prompt) {
     return empty;
 }
 
+__attribute__((weak)) long pyrite_keyboard_read_scancode(void) {
+    return 0;
+}
+
+__attribute__((weak)) long pyrite_keyboard_clear(void) {
+    return 0;
+}
+
+__attribute__((weak)) long pyrite_keyboard_append_ascii(long ascii) {
+    (void)ascii;
+    return 0;
+}
+
+__attribute__((weak)) long pyrite_keyboard_backspace(void) {
+    return 0;
+}
+
+__attribute__((weak)) char *pyrite_keyboard_value(void) {
+    static char empty[1] = {0};
+    return empty;
+}
+
 static unsigned char pyrite_heap[64 * 1024];
 static size_t pyrite_heap_used = 0;
 static unsigned char pyrite_temp_arena[8 * 1024];
