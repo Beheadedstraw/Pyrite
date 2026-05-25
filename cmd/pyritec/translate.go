@@ -196,6 +196,9 @@ func (c *Compiler) loadModule(name string) error {
 	for _, path := range []string{
 		filepath.Join("stdlib", name+".pyr"),
 		filepath.Join(filepath.Dir(c.srcPath), name+".pyr"),
+		filepath.Join(filepath.Dir(c.srcPath), "drivers", name+".pyr"),
+		filepath.Join(filepath.Dir(c.srcPath), "shell", name+".pyr"),
+		filepath.Join(filepath.Dir(c.srcPath), "tools", name+".pyr"),
 	} {
 		if samePath(path, c.srcPath) {
 			continue

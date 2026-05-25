@@ -69,6 +69,8 @@ func (c *Compiler) emitStatement(lineNo, indent int, s string) error {
 		c.body.WriteString(fmt.Sprintf("    while (%s) {\n", code))
 		c.blockStack = append(c.blockStack, block{kind: "while", indent: indent})
 		return nil
+	case isInlineIf(s):
+		return c.emitInlineIf(lineNo, s)
 	case strings.HasPrefix(s, "switch ") && strings.HasSuffix(s, ":"):
 		return c.emitSwitch(lineNo, indent, strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(s, "switch ")), ":"))
 	case strings.HasPrefix(s, "case ") && strings.HasSuffix(s, ":"):
@@ -150,6 +152,33 @@ func (c *Compiler) emitStatement(lineNo, indent int, s string) error {
 	default:
 		return fmt.Errorf("line %d: unsupported statement %q", lineNo, s)
 	}
+	return nil
+}
+
+func isInlineIf(s string) bool {
+	if !strings.HasPrefix(s, "if ") {
+		return false
+	}
+	idx := strings.Index(s, ":")
+	if idx < 0 {
+		return false
+	}
+	return strings.TrimSpace(s[idx+1:]) != ""
+}
+
+func (c *Compiler) emitInlineIf(lineNo int, s string) error {
+	bodyStart := strings.Index(s, ":")
+	cond := strings.TrimSpace(strings.TrimPrefix(s[:bodyStart], "if "))
+	tail := strings.TrimSpace(s[bodyStart+1:])
+	code, err := c.condition(cond)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	c.body.WriteString(fmt.Sprintf("    if (%s) {\n", code))
+	if err := c.emitStatement(lineNo, 0, tail); err != nil {
+		return err
+	}
+	c.body.WriteString("    }\n")
 	return nil
 }
 
@@ -248,12 +277,16 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 			c.body.WriteString(fmt.Sprintf("    %s%s = NULL;\n", decl, cName))
 		}
 		c.body.WriteString(fmt.Sprintf("    pyrite_assign_string(&%s, %s);\n", cName, code))
+	} else if storeKind == "bytes" {
+		c.body.WriteString(fmt.Sprintf("    %s%s = %s;\n", decl, cName, code))
 	} else {
 		c.body.WriteString(fmt.Sprintf("    %s%s = %s;\n", decl, cName, code))
 	}
 	if checkpoint {
 		if storeKind == "list_any" {
 			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_any_list(%s, &%s);\n", checkpointName, cName))
+		} else if storeKind == "bytes" {
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since(%s, %s.items);\n", checkpointName, cName))
 		} else if isClassKind(storeKind) {
 			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_class_object(%s, %s);\n", checkpointName, cName))
 		} else {
@@ -305,15 +338,15 @@ func (c *Compiler) needsAssignmentCheckpoint(name, value string) bool {
 	if strings.Contains(value, "\"") || strings.Contains(value, ".") || strings.Contains(value, "f\"") || strings.Contains(value, "[") {
 		return true
 	}
-	return c.types[name] == "string" || c.types[name] == "list_any" || c.types[name] == "any"
+	return c.types[name] == "string" || c.types[name] == "bytes" || c.types[name] == "list_any" || c.types[name] == "any"
 }
 
 func (c *Compiler) releasableKind(kind string) bool {
-	return kind == "string" || kind == "list_int" || kind == "list_any" || kind == "any"
+	return kind == "string" || kind == "bytes" || kind == "list_int" || kind == "list_any" || kind == "any"
 }
 
 func (c *Compiler) blockScopedReleasableKind(kind string) bool {
-	return kind == "string" || kind == "list_int" || kind == "list_any"
+	return kind == "string" || kind == "bytes" || kind == "list_int" || kind == "list_any"
 }
 
 func (c *Compiler) registerBlockCleanup(name, kind string) {
@@ -324,6 +357,8 @@ func (c *Compiler) registerBlockCleanup(name, kind string) {
 	switch kind {
 	case "string":
 		cleanup = fmt.Sprintf("    pyrite_release(%s);\n", name)
+	case "bytes":
+		cleanup = fmt.Sprintf("    pyrite_release(%s.items);\n", name)
 	case "list_int":
 		cleanup = fmt.Sprintf("    pyrite_release(%s.items);\n", name)
 	case "list_any":
@@ -340,6 +375,8 @@ func (c *Compiler) emitReleaseValue(name, kind string) {
 	switch kind {
 	case "string":
 		c.body.WriteString(fmt.Sprintf("    pyrite_release(%s);\n", name))
+	case "bytes":
+		c.body.WriteString(fmt.Sprintf("    pyrite_release(%s.items);\n", name))
 	case "list_int":
 		c.body.WriteString(fmt.Sprintf("    pyrite_release(%s.items);\n", name))
 	case "list_any":
@@ -353,6 +390,8 @@ func (c *Compiler) keepPointer(name, kind string) string {
 	switch kind {
 	case "string":
 		return name
+	case "bytes":
+		return fmt.Sprintf("%s.items", name)
 	case "file", "socket", "listener":
 		return name
 	case "list_int":
@@ -548,6 +587,8 @@ func (c *Compiler) emitPrint(lineNo int, expr string) error {
 		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(pyrite_list_int_string(&%s));\n", code))
 	case "list_any":
 		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(pyrite_list_any_string(&%s));\n", code))
+	case "bytes":
+		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(pyrite_bytes_string(&%s));\n", code))
 	default:
 		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(%s);\n", code))
 	}
@@ -951,6 +992,8 @@ func (c *Compiler) decl(name, kind string) string {
 		return "PyriteAny "
 	case "string":
 		return "char *"
+	case "bytes":
+		return "PyriteBytes "
 	case "file":
 		return "FILE *"
 	case "mux":
@@ -987,6 +1030,8 @@ func (c *Compiler) cType(kind string) string {
 		return "PyriteAny"
 	case "string":
 		return "char *"
+	case "bytes":
+		return "PyriteBytes"
 	case "mux":
 		return "PyriteMux *"
 	case "socket":

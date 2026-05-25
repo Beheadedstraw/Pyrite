@@ -37,6 +37,8 @@ func normalizeType(raw string) (string, error) {
 		return "float", nil
 	case "str", "string":
 		return "string", nil
+	case "bytes", "bytearray":
+		return "bytes", nil
 	case "bool", "boolean":
 		return "bool", nil
 	case "any":
@@ -71,7 +73,7 @@ func typesCompatible(want, got string) bool {
 	if want == got {
 		return true
 	}
-	if want == "any" && (got == "int" || got == "float" || got == "bool" || got == "string") {
+	if want == "any" && (got == "int" || got == "float" || got == "bool" || got == "string" || got == "bytes") {
 		return true
 	}
 	if want == "list_any" && got == "list_int" {

@@ -11,6 +11,9 @@ func (c *Compiler) expr(s string) (string, string, error) {
 	if strings.HasPrefix(s, "f\"") && strings.HasSuffix(s, "\"") {
 		return c.fstring(s)
 	}
+	if strings.HasPrefix(s, "b\"") && strings.HasSuffix(s, "\"") {
+		return bytesLiteral(s)
+	}
 	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
 		return s, "string", nil
 	}
@@ -52,6 +55,9 @@ func (c *Compiler) expr(s string) (string, string, error) {
 		if c.types[name] == "list_any" {
 			return fmt.Sprintf("%s.items[%s]", name, idx), "any", nil
 		}
+		if c.types[name] == "bytes" {
+			return fmt.Sprintf("pyrite_bytes_get(%s, %s)", name, idx), "int", nil
+		}
 	}
 	if c.isUserFunctionCall(s) {
 		code, kind, err := c.userFunctionCallExpr(0, s)
@@ -67,6 +73,9 @@ func (c *Compiler) expr(s string) (string, string, error) {
 		return c.compilerIntrinsicCallExpr(s)
 	}
 	if code, kind, ok, err := c.classMethodCall(s); ok || err != nil {
+		return code, kind, err
+	}
+	if code, kind, ok, err := c.bytesMethodCall(s); ok || err != nil {
 		return code, kind, err
 	}
 	if code, kind, ok, err := c.stringMethodCall(s); ok || err != nil {
@@ -98,6 +107,9 @@ func (c *Compiler) binaryNumberExpr(s string) (string, string, bool, error) {
 			rightCode, rightKind, rightErr := c.expr(s[idx+1:])
 			if leftErr == nil && rightErr == nil && leftKind == "string" && rightKind == "string" {
 				return fmt.Sprintf("pyrite_string_concat(%s, %s)", leftCode, rightCode), "string", true, nil
+			}
+			if leftErr == nil && rightErr == nil && leftKind == "bytes" && rightKind == "bytes" {
+				return fmt.Sprintf("pyrite_bytes_concat(%s, %s)", leftCode, rightCode), "bytes", true, nil
 			}
 		}
 		left, leftKind, err := c.numberExpr(s[:idx])
@@ -257,9 +269,45 @@ func anyValue(code, kind string) (string, error) {
 		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_BOOL, .as.b=%s}", code), nil
 	case "string":
 		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_STRING, .as.s=pyrite_promote_string(%s)}", code), nil
+	case "bytes":
+		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(%s)}", code), nil
 	default:
 		return "", fmt.Errorf("list[any] does not support %s items yet", kind)
 	}
+}
+
+func bytesLiteral(s string) (string, string, error) {
+	value, err := strconv.Unquote(strings.TrimPrefix(s, "b"))
+	if err != nil {
+		return "", "", fmt.Errorf("invalid bytes literal %q", s)
+	}
+	return fmt.Sprintf("pyrite_bytes_from_data((const unsigned char *)\"%s\", %d)", cBytesLiteral(value), len(value)), "bytes", nil
+}
+
+func cBytesLiteral(value string) string {
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		switch ch {
+		case '\\':
+			out.WriteString("\\\\")
+		case '"':
+			out.WriteString("\\\"")
+		case '\n':
+			out.WriteString("\\n")
+		case '\r':
+			out.WriteString("\\r")
+		case '\t':
+			out.WriteString("\\t")
+		default:
+			if ch < 32 || ch >= 127 {
+				out.WriteString(fmt.Sprintf("\\x%02x", ch))
+			} else {
+				out.WriteByte(ch)
+			}
+		}
+	}
+	return out.String()
 }
 
 type methodSpec struct {
@@ -322,6 +370,48 @@ func (c *Compiler) stringMethodCall(s string) (string, string, bool, error) {
 	return fmt.Sprintf("%s(%s)", spec.symbol, strings.Join(codes, ", ")), spec.kind, true, nil
 }
 
+func (c *Compiler) bytesMethodCall(s string) (string, string, bool, error) {
+	methods := map[string]methodSpec{
+		"len":       {"pyrite_bytes_len", 0, "int"},
+		"get":       {"pyrite_bytes_get", 1, "int"},
+		"at":        {"pyrite_bytes_get", 1, "int"},
+		"slice":     {"pyrite_bytes_slice", 2, "bytes"},
+		"push":      {"pyrite_bytes_push", 1, "bytes"},
+		"to_string": {"pyrite_bytes_to_string", 0, "string"},
+	}
+	baseRaw, method, rawArgs, ok := splitMethodCall(s)
+	if !ok {
+		return "", "", false, nil
+	}
+	spec, exists := methods[method]
+	if !exists {
+		return "", "", false, nil
+	}
+	base, baseKind, err := c.expr(baseRaw)
+	if err != nil {
+		return "", "", true, err
+	}
+	if baseKind != "bytes" {
+		return "", "", false, nil
+	}
+	args := splitArgs(rawArgs)
+	if len(args) != spec.args {
+		return "", "", true, fmt.Errorf("%s expects %d argument(s)", method, spec.args)
+	}
+	codes := []string{base}
+	for _, arg := range args {
+		code, kind, err := c.expr(arg)
+		if err != nil {
+			return "", "", true, err
+		}
+		if kind != "int" {
+			return "", "", true, fmt.Errorf("%s expects int argument, got %s", method, kind)
+		}
+		codes = append(codes, code)
+	}
+	return fmt.Sprintf("%s(%s)", spec.symbol, strings.Join(codes, ", ")), spec.kind, true, nil
+}
+
 type compilerIntrinsicSpec struct {
 	symbol string
 	params []string
@@ -331,6 +421,7 @@ type compilerIntrinsicSpec struct {
 func compilerIntrinsics() map[string]compilerIntrinsicSpec {
 	return map[string]compilerIntrinsicSpec{
 		"chr":                   {"pyrite_chr", []string{"int"}, "string"},
+		"bytes":                 {"pyrite_bytes_from_list", []string{"list_int"}, "bytes"},
 		"__json_stringify_any":  {"pyrite_json_stringify_any", []string{"any"}, "string"},
 		"__json_stringify_list": {"pyrite_json_stringify_list", []string{"list_any"}, "string"},
 		"__json_parse_any":      {"pyrite_json_parse_any", []string{"string"}, "any"},
@@ -794,6 +885,8 @@ func (c *Compiler) fstringArg(expr string) (string, string, error) {
 			code = fmt.Sprintf("pyrite_chomp(%s)", code)
 		}
 		return "%s", code, nil
+	case "bytes":
+		return "%s", fmt.Sprintf("pyrite_bytes_string(&%s)", code), nil
 	case "list_int":
 		return "%s", fmt.Sprintf("pyrite_list_int_string(&%s)", code), nil
 	case "list_any":

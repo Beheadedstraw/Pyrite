@@ -10,11 +10,17 @@ typedef struct {
     size_t len;
 } PyriteList;
 
+typedef struct {
+    unsigned char *items;
+    size_t len;
+} PyriteBytes;
+
 typedef enum {
     PYRITE_ANY_INT,
     PYRITE_ANY_FLOAT,
     PYRITE_ANY_BOOL,
-    PYRITE_ANY_STRING
+    PYRITE_ANY_STRING,
+    PYRITE_ANY_BYTES
 } PyriteAnyKind;
 
 typedef struct {
@@ -24,6 +30,7 @@ typedef struct {
         double f;
         int b;
         char *s;
+        PyriteBytes bytes;
     } as;
 } PyriteAny;
 
@@ -66,6 +73,9 @@ typedef struct { int unused; } PyriteMux;
 typedef struct { int fd; } PyriteSocket;
 typedef struct { int fd; } PyriteListener;
 typedef struct PyriteFreestandingFile FILE;
+
+long artemis_setup_user_mode(long kernel_cr3);
+long artemis_enter_user(long space, long entry, long stack);
 
 __attribute__((weak)) void pyrite_kernel_putchar(int ch) {
     (void)ch;
@@ -141,7 +151,7 @@ static char *pyrite_string_concat(const char *left, const char *right) {
 static char *pyrite_chr(long value) {
     char *out = pyrite_malloc(2);
     if (!out) return "";
-    if (value < 0 || value > 127) value = 0;
+    if (value < 0 || value > 255) value = 0;
     out[0] = (char)value;
     out[1] = '\0';
     return out;
@@ -171,6 +181,18 @@ static int pyrite_string_startswith(const char *s, const char *prefix) {
         prefix++;
     }
     return 1;
+}
+
+static long pyrite_string_find(const char *s, const char *needle) {
+    if (!s) s = "";
+    if (!needle || !*needle) return 0;
+    size_t needle_len = pyrite_strlen(needle);
+    for (size_t i = 0; s[i]; i++) {
+        size_t j = 0;
+        while (j < needle_len && s[i + j] && s[i + j] == needle[j]) j++;
+        if (j == needle_len) return (long)i;
+    }
+    return -1;
 }
 
 int strcmp(const char *left, const char *right) {
@@ -260,6 +282,86 @@ static char *pyrite_promote_string(const char *s) {
 static void pyrite_assign_string(char **slot, const char *s) {
     if (!slot) return;
     *slot = pyrite_promote_string(s);
+}
+
+static PyriteBytes pyrite_bytes_from_data(const unsigned char *data, long len) {
+    PyriteBytes out = {0};
+    if (len <= 0) return out;
+    out.items = pyrite_malloc((size_t)len);
+    if (!out.items) return out;
+    out.len = (size_t)len;
+    pyrite_memcpy(out.items, data, (size_t)len);
+    return out;
+}
+
+static PyriteBytes pyrite_bytes_copy(PyriteBytes value) {
+    return pyrite_bytes_from_data(value.items, (long)value.len);
+}
+
+static PyriteBytes pyrite_bytes_from_list(PyriteList list) {
+    PyriteBytes out = {0};
+    if (list.len == 0) return out;
+    out.items = pyrite_malloc(list.len);
+    if (!out.items) return out;
+    out.len = list.len;
+    for (size_t i = 0; i < list.len; i++) {
+        long value = list.items[i];
+        if (value < 0) value = 0;
+        if (value > 255) value = 255;
+        out.items[i] = (unsigned char)value;
+    }
+    return out;
+}
+
+static long pyrite_bytes_len(PyriteBytes value) {
+    return (long)value.len;
+}
+
+static long pyrite_bytes_get(PyriteBytes value, long index) {
+    if (index < 0 || (size_t)index >= value.len || !value.items) return 0;
+    return (long)value.items[index];
+}
+
+static PyriteBytes pyrite_bytes_slice(PyriteBytes value, long start, long end) {
+    if (start < 0) start = 0;
+    if (end < start) end = start;
+    if ((size_t)start > value.len) start = (long)value.len;
+    if ((size_t)end > value.len) end = (long)value.len;
+    return pyrite_bytes_from_data(value.items + start, end - start);
+}
+
+static PyriteBytes pyrite_bytes_push(PyriteBytes value, long byte_value) {
+    PyriteBytes out = {0};
+    out.items = pyrite_malloc(value.len + 1);
+    if (!out.items) return out;
+    out.len = value.len + 1;
+    if (value.items && value.len) pyrite_memcpy(out.items, value.items, value.len);
+    if (byte_value < 0) byte_value = 0;
+    if (byte_value > 255) byte_value = 255;
+    out.items[value.len] = (unsigned char)byte_value;
+    return out;
+}
+
+static PyriteBytes pyrite_bytes_concat(PyriteBytes left, PyriteBytes right) {
+    PyriteBytes out = {0};
+    out.len = left.len + right.len;
+    if (out.len == 0) return out;
+    out.items = pyrite_malloc(out.len);
+    if (!out.items) {
+        out.len = 0;
+        return out;
+    }
+    if (left.items && left.len) pyrite_memcpy(out.items, left.items, left.len);
+    if (right.items && right.len) pyrite_memcpy(out.items + left.len, right.items, right.len);
+    return out;
+}
+
+static char *pyrite_bytes_to_string(PyriteBytes value) {
+    char *out = pyrite_malloc(value.len + 1);
+    if (!out) return "";
+    if (value.items && value.len) pyrite_memcpy(out, value.items, value.len);
+    out[value.len] = '\0';
+    return out;
 }
 
 static char *pyrite_last_error_or(const char *fallback) {
@@ -397,9 +499,25 @@ static char *pyrite_any_string(PyriteAny value) {
         return value.as.b ? "true" : "false";
     case PYRITE_ANY_STRING:
         return value.as.s ? value.as.s : "";
+    case PYRITE_ANY_BYTES:
+        return pyrite_bytes_to_string(value.as.bytes);
     default:
         return "";
     }
+}
+
+static char *pyrite_bytes_string(PyriteBytes *bytes) {
+    char *buf = pyrite_temp_alloc(512);
+    char *cursor = buf;
+    char *end = buf ? buf + 512 : NULL;
+    if (!buf) return "";
+    pyrite_append_str(&cursor, end, "b[");
+    for (size_t i = 0; bytes && i < bytes->len; i++) {
+        if (i) pyrite_append_str(&cursor, end, ", ");
+        pyrite_append_long(&cursor, end, (long)bytes->items[i]);
+    }
+    pyrite_append_char(&cursor, end, ']');
+    return buf;
 }
 
 static void pyrite_print_any(PyriteAny value) {
@@ -517,5 +635,97 @@ static long pyrite_kernel_outb(long port, long value) {
 
 static long pyrite_kernel_inb(long port) {
     return pyrite_kernel_read_port(port);
+}
+
+static long pyrite_kernel_outw(long port, long value) {
+#if defined(__x86_64__) || defined(__i386__)
+    __asm__ volatile("outw %0, %1" : : "a"((uint16_t)value), "Nd"((uint16_t)port));
+#else
+    (void)port;
+    (void)value;
+#endif
+    return 0;
+}
+
+static long pyrite_kernel_inw(long port) {
+    uint16_t value = 0;
+#if defined(__x86_64__) || defined(__i386__)
+    __asm__ volatile("inw %1, %0" : "=a"(value) : "Nd"((uint16_t)port));
+#else
+    (void)port;
+#endif
+    return (long)value;
+}
+
+static long pyrite_kernel_read64(long address) {
+    volatile uint64_t *ptr = (volatile uint64_t *)(uintptr_t)address;
+    return (long)(*ptr);
+}
+
+static long pyrite_kernel_write64(long address, long value) {
+    volatile uint64_t *ptr = (volatile uint64_t *)(uintptr_t)address;
+    *ptr = (uint64_t)value;
+    return 0;
+}
+
+static long pyrite_kernel_read8(long address) {
+    volatile uint8_t *ptr = (volatile uint8_t *)(uintptr_t)address;
+    return (long)(*ptr);
+}
+
+static long pyrite_kernel_write8(long address, long value) {
+    volatile uint8_t *ptr = (volatile uint8_t *)(uintptr_t)address;
+    *ptr = (uint8_t)value;
+    return 0;
+}
+
+static long pyrite_kernel_read_cr3(void) {
+    uint64_t value = 0;
+#if defined(__x86_64__) || defined(__i386__)
+    __asm__ volatile("mov %%cr3, %0" : "=r"(value));
+#endif
+    return (long)value;
+}
+
+static long pyrite_kernel_write_cr3(long value) {
+#if defined(__x86_64__) || defined(__i386__)
+    __asm__ volatile("mov %0, %%cr3" : : "r"((uint64_t)value) : "memory");
+#else
+    (void)value;
+#endif
+    return 0;
+}
+
+static long pyrite_kernel_flush_page(long address) {
+#if defined(__x86_64__) || defined(__i386__)
+    __asm__ volatile("invlpg (%0)" : : "r"((void *)(uintptr_t)address) : "memory");
+#else
+    (void)address;
+#endif
+    return 0;
+}
+
+static long pyrite_kernel_shr(long value, long bits) {
+    return (long)((uint64_t)value >> (uint64_t)bits);
+}
+
+static long pyrite_kernel_shl(long value, long bits) {
+    return (long)((uint64_t)value << (uint64_t)bits);
+}
+
+static long pyrite_kernel_ptr(const char *value) {
+    return (long)(uintptr_t)value;
+}
+
+static char *pyrite_kernel_string_at(long address) {
+    if (address == 0) return "";
+    return (char *)(uintptr_t)address;
+}
+
+static long pyrite_kernel_string_byte(const char *value, long index) {
+    if (!value || index < 0) return 0;
+    size_t len = pyrite_strlen(value);
+    if ((size_t)index >= len) return 0;
+    return (long)(uint8_t)value[index];
 }
 `

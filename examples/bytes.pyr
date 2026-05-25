@@ -1,0 +1,10 @@
+def main():
+    data: bytes = b"AR\x00\xff"
+    more: bytes = bytes([1, 2, 255])
+    joined: bytes = data + more.push(7)
+    print(joined.len())
+    print(joined.get(0))
+    print(joined.get(3))
+    print(joined[4])
+    print(joined.slice(0, 2).to_string())
+    print(joined)

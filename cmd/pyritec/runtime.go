@@ -25,11 +25,17 @@ typedef struct {
     size_t len;
 } PyriteList;
 
+typedef struct {
+    unsigned char *items;
+    size_t len;
+} PyriteBytes;
+
 typedef enum {
     PYRITE_ANY_INT,
     PYRITE_ANY_FLOAT,
     PYRITE_ANY_BOOL,
-    PYRITE_ANY_STRING
+    PYRITE_ANY_STRING,
+    PYRITE_ANY_BYTES
 } PyriteAnyKind;
 
 typedef struct {
@@ -39,6 +45,7 @@ typedef struct {
         double f;
         int b;
         char *s;
+        PyriteBytes bytes;
     } as;
 } PyriteAny;
 
@@ -182,6 +189,7 @@ static int pyrite_any_list_keeps(PyriteAnyList *list, void *ptr) {
     if (ptr == list->items) return 1;
     for (size_t i = 0; i < list->len; i++) {
         if (list->items[i].kind == PYRITE_ANY_STRING && ptr == list->items[i].as.s) return 1;
+        if (list->items[i].kind == PYRITE_ANY_BYTES && ptr == list->items[i].as.bytes.items) return 1;
     }
     return 0;
 }
@@ -206,6 +214,7 @@ static int pyrite_class_object_keeps(PyriteClassObject *obj, void *ptr) {
     for (size_t i = 0; i < obj->len; i++) {
         if (ptr == obj->fields[i].name) return 1;
         if (obj->fields[i].value.kind == PYRITE_ANY_STRING && ptr == obj->fields[i].value.as.s) return 1;
+        if (obj->fields[i].value.kind == PYRITE_ANY_BYTES && ptr == obj->fields[i].value.as.bytes.items) return 1;
     }
     return 0;
 }
@@ -275,6 +284,86 @@ static void pyrite_assign_string(char **slot, const char *s) {
     }
     pyrite_release(*slot);
     *slot = pyrite_promote_string(s);
+}
+
+static PyriteBytes pyrite_bytes_from_data(const unsigned char *data, long len) {
+    PyriteBytes out = {0};
+    if (len <= 0) return out;
+    out.items = pyrite_malloc((size_t)len);
+    if (!out.items) return out;
+    out.len = (size_t)len;
+    memcpy(out.items, data, (size_t)len);
+    return out;
+}
+
+static PyriteBytes pyrite_bytes_copy(PyriteBytes value) {
+    return pyrite_bytes_from_data(value.items, (long)value.len);
+}
+
+static PyriteBytes pyrite_bytes_from_list(PyriteList list) {
+    PyriteBytes out = {0};
+    if (list.len == 0) return out;
+    out.items = pyrite_malloc(list.len);
+    if (!out.items) return out;
+    out.len = list.len;
+    for (size_t i = 0; i < list.len; i++) {
+        long value = list.items[i];
+        if (value < 0) value = 0;
+        if (value > 255) value = 255;
+        out.items[i] = (unsigned char)value;
+    }
+    return out;
+}
+
+static long pyrite_bytes_len(PyriteBytes value) {
+    return (long)value.len;
+}
+
+static long pyrite_bytes_get(PyriteBytes value, long index) {
+    if (index < 0 || (size_t)index >= value.len || !value.items) return 0;
+    return (long)value.items[index];
+}
+
+static PyriteBytes pyrite_bytes_slice(PyriteBytes value, long start, long end) {
+    if (start < 0) start = 0;
+    if (end < start) end = start;
+    if ((size_t)start > value.len) start = (long)value.len;
+    if ((size_t)end > value.len) end = (long)value.len;
+    return pyrite_bytes_from_data(value.items + start, end - start);
+}
+
+static PyriteBytes pyrite_bytes_push(PyriteBytes value, long byte_value) {
+    PyriteBytes out = {0};
+    out.items = pyrite_malloc(value.len + 1);
+    if (!out.items) return out;
+    out.len = value.len + 1;
+    if (value.items && value.len) memcpy(out.items, value.items, value.len);
+    if (byte_value < 0) byte_value = 0;
+    if (byte_value > 255) byte_value = 255;
+    out.items[value.len] = (unsigned char)byte_value;
+    return out;
+}
+
+static PyriteBytes pyrite_bytes_concat(PyriteBytes left, PyriteBytes right) {
+    PyriteBytes out = {0};
+    out.len = left.len + right.len;
+    if (out.len == 0) return out;
+    out.items = pyrite_malloc(out.len);
+    if (!out.items) {
+        out.len = 0;
+        return out;
+    }
+    if (left.items && left.len) memcpy(out.items, left.items, left.len);
+    if (right.items && right.len) memcpy(out.items + left.len, right.items, right.len);
+    return out;
+}
+
+static char *pyrite_bytes_to_string(PyriteBytes value) {
+    char *out = pyrite_malloc(value.len + 1);
+    if (!out) return "";
+    if (value.items && value.len) memcpy(out, value.items, value.len);
+    out[value.len] = '\0';
+    return out;
 }
 
 typedef struct PyriteObject {
@@ -934,9 +1023,25 @@ static char *pyrite_any_string(PyriteAny value) {
         return value.as.b ? "true" : "false";
     case PYRITE_ANY_STRING:
         return value.as.s ? value.as.s : "";
+    case PYRITE_ANY_BYTES:
+        return pyrite_bytes_to_string(value.as.bytes);
     default:
         return "";
     }
+}
+
+static char *pyrite_bytes_string(PyriteBytes *bytes) {
+    if (!bytes || bytes->len == 0) return pyrite_fmt("b[]");
+    size_t cap = 3 + bytes->len * 5;
+    char *buf = pyrite_temp_alloc(cap);
+    if (!buf) return "";
+    size_t used = 0;
+    used += snprintf(buf + used, cap - used, "b[");
+    for (size_t i = 0; i < bytes->len; i++) {
+        used += snprintf(buf + used, cap - used, "%s%u", i == 0 ? "" : ", ", (unsigned)bytes->items[i]);
+    }
+    snprintf(buf + used, cap - used, "]");
+    return buf;
 }
 
 static void pyrite_print_any(PyriteAny value) {
@@ -1311,12 +1416,19 @@ static void pyrite_release_any(PyriteAny *value) {
     if (value->kind == PYRITE_ANY_STRING) {
         pyrite_release(value->as.s);
         value->as.s = NULL;
+    } else if (value->kind == PYRITE_ANY_BYTES) {
+        pyrite_release(value->as.bytes.items);
+        value->as.bytes.items = NULL;
+        value->as.bytes.len = 0;
     }
 }
 
 static PyriteAny pyrite_any_clone(PyriteAny value) {
     if (value.kind == PYRITE_ANY_STRING) {
         return (PyriteAny){.kind=PYRITE_ANY_STRING, .as.s=pyrite_promote_string(value.as.s)};
+    }
+    if (value.kind == PYRITE_ANY_BYTES) {
+        return (PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(value.as.bytes)};
     }
     return value;
 }

@@ -15,6 +15,13 @@ func main() {
 	c := NewCompiler(inputPath, outPath)
 	c.traceDefers = traceDefers
 	c.target = target
+	if target == "artemis" {
+		if err := CompileArtemisProgram(inputPath, outPath); err != nil {
+			fmt.Fprintln(os.Stderr, "pyritec:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := c.Compile(); err != nil {
 		fmt.Fprintln(os.Stderr, "pyritec:", err)
 		os.Exit(1)
@@ -48,12 +55,12 @@ func parseArgs(args []string) (inputPath, outPath string, traceDefers bool, targ
 			inputPath = args[i]
 		}
 	}
-	if target != "hosted" && target != "freestanding" {
+	if target != "hosted" && target != "freestanding" && target != "artemis" {
 		return "", "", false, "", false
 	}
 	return inputPath, outPath, traceDefers, target, inputPath != "" && outPath != ""
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: pyritec [--trace-defer] [--target hosted|freestanding] <input.pyr> -o <output>")
+	fmt.Fprintln(os.Stderr, "usage: pyritec [--trace-defer] [--target hosted|freestanding|artemis] <input.pyr> -o <output>")
 }
