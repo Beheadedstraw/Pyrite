@@ -157,6 +157,17 @@ static char *pyrite_string_slice(const char *s, long start, long end) {
     return out;
 }
 
+static int pyrite_string_startswith(const char *s, const char *prefix) {
+    if (!s) s = "";
+    if (!prefix) prefix = "";
+    while (*prefix) {
+        if (*s != *prefix) return 0;
+        s++;
+        prefix++;
+    }
+    return 1;
+}
+
 int strcmp(const char *left, const char *right) {
     unsigned char l;
     unsigned char r;
