@@ -1,0 +1,4 @@
+defaults = {"kind": "student", "active": true}
+
+def add(a, b):
+    return a + b

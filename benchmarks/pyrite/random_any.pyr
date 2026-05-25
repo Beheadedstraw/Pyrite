@@ -1,0 +1,22 @@
+import random
+
+class RandomAnyBench:
+    def __init__(self, limit: int):
+        self.limit = limit
+
+    def run(self):
+        random.seed(123)
+        i = 0
+        values: list[any] = ["Ada", 42, 3.5, True, "Pyrite"]
+        picked: any = "none"
+
+        while i < self.limit:
+            picked = random.choice(values)
+            i = i + 1
+
+        return i
+
+def main():
+    bench = RandomAnyBench(200000)
+    print(bench.run())
+    return 0

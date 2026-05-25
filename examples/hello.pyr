@@ -1,0 +1,10 @@
+import console
+
+def main():
+    const a = 10
+    b = 32
+    c = a + b
+    print("hello from pyrite")
+    print("this was emitted from source")
+    print(c)
+    return c

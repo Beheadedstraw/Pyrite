@@ -1,0 +1,10 @@
+# Runtime-backed integer helpers.
+
+native def abs(value: int) -> int = pyrite_int_abs
+native def min(left: int, right: int) -> int = pyrite_int_min
+native def max(left: int, right: int) -> int = pyrite_int_max
+native def clamp(value: int, min: int, max: int) -> int = pyrite_int_clamp
+native def to_float(value: int) -> float = pyrite_int_to_float
+native def to_string(value: int) -> string = pyrite_int_to_string
+native def is_even(value: int) -> bool = pyrite_int_is_even
+native def is_odd(value: int) -> bool = pyrite_int_is_odd

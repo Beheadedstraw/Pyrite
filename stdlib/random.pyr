@@ -1,0 +1,6 @@
+# Runtime-backed random bindings.
+
+native def int(min: int, max: int) -> int = pyrite_random_int
+native def seed(value: int) -> int = pyrite_random_seed
+native def float() -> float = pyrite_random_float
+native def choice(items: list[any]) -> any = pyrite_random_choice_any

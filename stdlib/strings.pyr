@@ -1,0 +1,17 @@
+# Runtime-backed string helpers.
+
+native def strip(value: string) -> string = pyrite_string_strip
+native def lstrip(value: string) -> string = pyrite_string_lstrip
+native def rstrip(value: string) -> string = pyrite_string_rstrip
+native def upper(value: string) -> string = pyrite_string_upper
+native def lower(value: string) -> string = pyrite_string_lower
+native def copy(value: string) -> string = pyrite_promote_string
+native def len(value: string) -> int = pyrite_string_len
+native def find(value: string, needle: string) -> int = pyrite_string_find
+native def contains(value: string, needle: string) -> bool = pyrite_string_contains
+native def startswith(value: string, prefix: string) -> bool = pyrite_string_startswith
+native def starts_with(value: string, prefix: string) -> bool = pyrite_string_startswith
+native def endswith(value: string, suffix: string) -> bool = pyrite_string_endswith
+native def ends_with(value: string, suffix: string) -> bool = pyrite_string_endswith
+native def replace(value: string, old: string, replacement: string) -> string = pyrite_string_replace
+native def slice(value: string, start: int, end: int) -> string = pyrite_string_slice

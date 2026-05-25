@@ -1,0 +1,3 @@
+# Runtime-backed time helpers.
+
+native def sleep(seconds: float) -> int = pyrite_time_sleep

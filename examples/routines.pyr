@@ -1,0 +1,18 @@
+import routines
+
+def main():
+    routines.workers(4)
+    print_lock: mux = mux()
+    routine(print("routine: hello from background work"), print_lock)
+    routine(print(42), print_lock)
+    async(testr(3))
+    routine(testr(5), print_lock)
+    result = testr(10)
+    print(result)
+    print("main: waiting for routines on return")
+    return 0
+
+def testr(m):
+    print("testing")
+    print(f"{m} testing int plus string")
+    return 1

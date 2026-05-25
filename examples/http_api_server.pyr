@@ -1,0 +1,48 @@
+import http
+import routines
+
+def route_api(request: string):
+    path = http.path(request)
+    connection = http.response_connection(request)
+
+    switch path:
+        case "/api/ping":
+            return http.json_conn("{\"ok\":true,\"service\":\"pyrite\"}", connection)
+        case "/api/score":
+            return http.json_conn("{\"name\":\"Ada\",\"score\":42}", connection)
+        case "/api/text":
+            return http.text_conn("hello from Pyrite\n", connection)
+        default:
+            return http.not_found_conn(connection)
+
+def handle_client(client: socket):
+    open = True
+
+    while open:
+        request = http.read_request(client)
+        if request == "":
+            open = False
+        else:
+            reply = route_api(request)
+            http.write_response(client, reply)
+            if http.should_close(request):
+                open = False
+
+    http.close(client)
+    return 0
+
+def serve_fixed(host: string, port: int, requests: int):
+    server: listener = http.listen_backlog(host, port, 128).defer()
+    handled = 0
+
+    while handled < requests:
+        client: socket = http.accept(server)
+        async(handle_client(client))
+        handled = handled + 1
+
+    return handled
+
+def main():
+    routines.workers(16)
+    print("Pyrite HTTP API listening on 127.0.0.1:8081")
+    return serve_fixed("127.0.0.1", 8081, 100)

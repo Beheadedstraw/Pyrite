@@ -1,0 +1,11 @@
+import net
+
+def main():
+    server: listener = net.listen("127.0.0.1", 8080).defer()
+    client: socket = net.accept(server).defer()
+
+    request = net.read(client, 1024)
+    print(f"request = {request}")
+    net.write(client, "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nhello from Pyrite\n")
+
+    return 0

@@ -1,0 +1,7 @@
+# Runtime-backed file bindings.
+
+native def open(path: string, mode: string) -> file = pyrite_file_open
+native def read_all(handle: file) -> string = pyrite_file_read_all
+native def write(handle: file, data: string) -> int = pyrite_file_write
+native def flush(handle: file) -> int = pyrite_file_flush
+native def last_error() -> string = pyrite_last_error_value

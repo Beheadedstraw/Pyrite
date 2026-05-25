@@ -1,0 +1,3 @@
+# Runtime-backed regex bindings.
+
+native def match(pattern: string, text: string) -> bool = pyrite_regex_match

@@ -1,0 +1,241 @@
+# Small pure Pyrite HTTP helpers built on top of net sockets.
+
+import net
+import routines
+import strings
+
+def tune_workers():
+    # Blocking keep-alive sockets benchmark best with a small worker fanout.
+    return routines.workers(3)
+
+def response(status: string, content_type: string, body: string):
+    stable_body = strings.copy(body)
+    size = stable_body.len()
+    return f"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n{stable_body}"
+
+def response_with_connection(status: string, content_type: string, body: string, connection: string):
+    stable_body = strings.copy(body)
+    size = stable_body.len()
+    return f"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {size}\r\nConnection: {connection}\r\n\r\n{stable_body}"
+
+def ok_text(body: string):
+    return http.response("200 OK", "text/plain", body)
+
+def ok_json(body: string):
+    return http.response("200 OK", "application/json", body)
+
+def ok_text_conn(body: string, connection: string):
+    return http.response_with_connection("200 OK", "text/plain", body, connection)
+
+def ok_json_conn(body: string, connection: string):
+    return http.response_with_connection("200 OK", "application/json", body, connection)
+
+def json(body: string):
+    return http.ok_json(body)
+
+def text(body: string):
+    return http.ok_text(body)
+
+def json_conn(body: string, connection: string):
+    return http.ok_json_conn(body, connection)
+
+def text_conn(body: string, connection: string):
+    return http.ok_text_conn(body, connection)
+
+def created_json(body: string):
+    return http.response("201 Created", "application/json", body)
+
+def accepted_json(body: string):
+    return http.response("202 Accepted", "application/json", body)
+
+def no_content():
+    return http.response("204 No Content", "text/plain", "")
+
+def not_found():
+    return http.response("404 Not Found", "application/json", "{\"error\":\"not found\"}")
+
+def not_found_conn(connection: string):
+    return http.response_with_connection("404 Not Found", "application/json", "{\"error\":\"not found\"}", connection)
+
+def bad_request():
+    return http.response("400 Bad Request", "application/json", "{\"error\":\"bad request\"}")
+
+def method_not_allowed():
+    return http.response("405 Method Not Allowed", "application/json", "{\"error\":\"method not allowed\"}")
+
+def server_error():
+    return http.response("500 Internal Server Error", "application/json", "{\"error\":\"server error\"}")
+
+def listen(host: string, port: int):
+    return net.listen_backlog(host, port, 128)
+
+def listen_backlog(host: string, port: int, backlog: int):
+    return net.listen_backlog(host, port, backlog)
+
+def accept(server: listener):
+    return net.accept(server)
+
+def close(client: socket):
+    return net.close(client)
+
+def close_listener(server: listener):
+    return net.close_listener(server)
+
+def request_method(request: string):
+    first_space = request.find(" ")
+    if first_space < 0:
+        return ""
+    return request.slice(0, first_space)
+
+def request_path(request: string):
+    first_space = request.find(" ")
+    if first_space < 0:
+        return ""
+
+    after_method = request.slice(first_space + 1, request.len())
+    second_space = after_method.find(" ")
+    if second_space < 0:
+        return after_method
+
+    return after_method.slice(0, second_space)
+
+def request_target(request: string):
+    return http.request_path(request)
+
+def path(request: string):
+    target = http.request_path(request)
+    query_start = target.find("?")
+    if query_start < 0:
+        return target
+    return target.slice(0, query_start)
+
+def path_is(request: string, route_path: string):
+    if http.path(request) == route_path:
+        return True
+    else:
+        return False
+
+def query(request: string):
+    target = http.request_path(request)
+    query_start = target.find("?")
+    if query_start < 0:
+        return ""
+    return target.slice(query_start + 1, target.len())
+
+def request_version(request: string):
+    first_space = request.find(" ")
+    if first_space < 0:
+        return ""
+
+    after_method = request.slice(first_space + 1, request.len())
+    second_space = after_method.find(" ")
+    if second_space < 0:
+        return ""
+
+    after_path = after_method.slice(second_space + 1, after_method.len())
+    line_end = after_path.find("\r\n")
+    if line_end < 0:
+        return after_path.strip()
+
+    return after_path.slice(0, line_end)
+
+def read_request(client: socket):
+    return net.read(client, 4096)
+
+def should_close(request: string):
+    if request == "":
+        return True
+    else:
+        if request.contains("Connection: close"):
+            return True
+        else:
+            return False
+
+def response_connection(request: string):
+    if http.should_close(request):
+        return "close"
+    else:
+        return "keep-alive"
+
+def is_preflight(request: string):
+    if http.request_method(request) == "OPTIONS":
+        return True
+    else:
+        return False
+
+def cors_allowed_origin(request: string, allowed_origins: list[any]):
+    foreach(allowed_origins, origin):
+        origin_text = f"{origin}"
+        header = f"Origin: {origin_text}"
+        if request.contains(header):
+            return origin_text
+    return ""
+
+def cors_request_allowed(request: string, allowed_origins: list[any]):
+    origin = http.cors_allowed_origin(request, allowed_origins)
+    if origin == "":
+        return False
+    else:
+        if request.contains("Access-Control-Request-Method: GET"):
+            if request.contains("authorization"):
+                if request.contains("content-type"):
+                    return True
+    return False
+
+def cors_preflight_conn(request: string, allowed_origins: list[any], connection: string):
+    origin = http.cors_allowed_origin(request, allowed_origins)
+    if origin == "":
+        return f"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nContent-Length: 14\r\nConnection: {connection}\r\n\r\ncors rejected\n"
+    else:
+        if http.cors_request_allowed(request, allowed_origins):
+            return f"HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: {origin}\r\nAccess-Control-Allow-Methods: GET, OPTIONS\r\nAccess-Control-Allow-Headers: authorization,content-type\r\nAccess-Control-Max-Age: 600\r\nVary: Origin\r\nContent-Length: 0\r\nConnection: {connection}\r\n\r\n"
+        else:
+            return f"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nContent-Length: 14\r\nConnection: {connection}\r\n\r\ncors rejected\n"
+
+def cors_preflight(request: string, allowed_origins: list[any]):
+    connection = http.response_connection(request)
+    return http.cors_preflight_conn(request, allowed_origins, connection)
+
+def write_response(client: socket, reply: string):
+    return net.write(client, reply)
+
+def respond(client: socket, reply: string):
+    written = http.write_response(client, reply)
+    http.close(client)
+    return written
+
+def route(request: string, method: string, route_path: string):
+    if http.request_method(request) == method:
+        if http.path(request) == route_path:
+            return True
+        else:
+            return False
+    else:
+        return False
+
+def match(method: string, path: string, route_method: string, route_path: string):
+    if method == route_method:
+        if path == route_path:
+            return True
+        else:
+            return False
+    else:
+        return False
+
+def match_get(path: string, route_path: string):
+    if path == route_path:
+        return True
+    else:
+        return False
+
+def get(request: string, route_path: string):
+    return http.route(request, "GET", route_path)
+
+def post(request: string, route_path: string):
+    return http.route(request, "POST", route_path)
+
+def put(request: string, route_path: string):
+    return http.route(request, "PUT", route_path)
+
+def delete(request: string, route_path: string):
+    return http.route(request, "DELETE", route_path)

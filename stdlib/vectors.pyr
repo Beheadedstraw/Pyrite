@@ -1,0 +1,37 @@
+# Pure Pyrite integer vector helpers.
+#
+# Vectors are represented as list[int] values. This first version focuses on
+# fixed 2D and 3D vectors because Pyrite does not have appendable lists yet.
+
+def add2(a: list[int], b: list[int]):
+    return [a[0] + b[0], a[1] + b[1]]
+
+def sub2(a: list[int], b: list[int]):
+    return [a[0] - b[0], a[1] - b[1]]
+
+def scale2(v: list[int], scalar: int):
+    return [v[0] * scalar, v[1] * scalar]
+
+def dot2(a: list[int], b: list[int]):
+    return a[0] * b[0] + a[1] * b[1]
+
+def length_sq2(v: list[int]):
+    return vectors.dot2(v, v)
+
+def add3(a: list[int], b: list[int]):
+    return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+
+def sub3(a: list[int], b: list[int]):
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+
+def scale3(v: list[int], scalar: int):
+    return [v[0] * scalar, v[1] * scalar, v[2] * scalar]
+
+def dot3(a: list[int], b: list[int]):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+def cross3(a: list[int], b: list[int]):
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+
+def length_sq3(v: list[int]):
+    return vectors.dot3(v, v)

@@ -1,0 +1,7 @@
+import time
+
+def main():
+    print("before sleep")
+    time.sleep(0.01)
+    print("after sleep")
+    return 0

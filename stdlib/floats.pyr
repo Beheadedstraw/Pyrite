@@ -1,0 +1,12 @@
+# Runtime-backed float helpers.
+
+native def abs(value: float) -> float = pyrite_float_abs
+native def min(left: float, right: float) -> float = pyrite_float_min
+native def max(left: float, right: float) -> float = pyrite_float_max
+native def clamp(value: float, min: float, max: float) -> float = pyrite_float_clamp
+native def round(value: float) -> int = pyrite_float_round
+native def floor(value: float) -> int = pyrite_float_floor
+native def ceil(value: float) -> int = pyrite_float_ceil
+native def trunc(value: float) -> int = pyrite_float_trunc
+native def to_int(value: float) -> int = pyrite_float_to_int
+native def to_string(value: float) -> string = pyrite_float_to_string

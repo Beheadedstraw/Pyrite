@@ -1,0 +1,28 @@
+import ints
+import floats
+
+def main():
+    count = -7
+    limit = 10
+    ratio: float = -3.75
+
+    print(f"abs int = {count.abs()}")
+    print(f"clamped int = {count.clamp(0, limit)}")
+    print(f"int max = {count.max(limit)}")
+    print(f"int even = {count.is_even()}")
+    print(f"int odd = {count.is_odd()}")
+    print(count.to_string())
+    print(f"int to float = {count.to_float()}")
+
+    print(f"abs float = {ratio.abs()}")
+    print(f"round = {ratio.round()}")
+    print(f"floor = {ratio.floor()}")
+    print(f"ceil = {ratio.ceil()}")
+    print(f"trunc = {ratio.trunc()}")
+    print(f"float clamp = {ratio.clamp(0.0, 1.0)}")
+    print(ratio.to_string())
+
+    print(f"module int min = {ints.min(3, 9)}")
+    print(f"module float max = {floats.max(2.5, 7.25)}")
+
+    return ratio.abs().round()

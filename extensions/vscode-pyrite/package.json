@@ -1,0 +1,96 @@
+{
+  "name": "pyrite-language-support",
+  "displayName": "Pyrite Language Support",
+  "description": "Syntax highlighting, language server completions, snippets, and compile commands for Pyrite .pyr files.",
+  "version": "0.3.1",
+  "publisher": "pyrite",
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:pyrite",
+    "onCommand:pyrite.compileCurrentFile",
+    "onCommand:pyrite.compileCurrentFileWithTrace",
+    "onCommand:pyrite.runCurrentFile"
+  ],
+  "main": "./src/extension.js",
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "pyrite",
+        "aliases": [
+          "Pyrite",
+          "pyrite"
+        ],
+        "extensions": [
+          ".pyr"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "pyrite",
+        "scopeName": "source.pyrite",
+        "path": "./syntaxes/pyrite.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "pyrite",
+        "path": "./snippets/pyrite.json"
+      }
+    ],
+    "configuration": {
+      "title": "Pyrite",
+      "properties": {
+        "pyrite.compilerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the pyrite compiler. Empty means use ./build/pyritec from the workspace when available, otherwise pyritec on PATH."
+        },
+        "pyrite.outputDirectory": {
+          "type": "string",
+          "default": "build",
+          "description": "Directory for compiled Pyrite binaries, relative to the workspace folder."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "pyrite.compileCurrentFile",
+        "title": "Pyrite: Compile Current File"
+      },
+      {
+        "command": "pyrite.compileCurrentFileWithTrace",
+        "title": "Pyrite: Compile Current File With Defer Trace"
+      },
+      {
+        "command": "pyrite.runCurrentFile",
+        "title": "Pyrite: Compile And Run Current File"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "pyrite.compileCurrentFile",
+          "when": "editorLangId == pyrite",
+          "group": "navigation"
+        },
+        {
+          "command": "pyrite.runCurrentFile",
+          "when": "editorLangId == pyrite",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}

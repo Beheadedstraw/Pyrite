@@ -1,0 +1,39 @@
+import vectors
+
+class VectorMathBench:
+    def __init__(self, limit: int):
+        self.limit = limit
+
+    def run(self):
+        i = 0
+        total = 0
+        a = [3, 4]
+        b = [10, 2]
+        c = [1, 2, 3]
+        d = [4, 5, 6]
+
+        while i < self.limit:
+            sum2 = vectors.add2(a, b)
+            diff2 = vectors.sub2(a, b)
+            scaled2 = vectors.scale2(a, 3)
+            dot2 = vectors.dot2(a, b)
+            len2 = vectors.length_sq2(a)
+
+            sum3 = vectors.add3(c, d)
+            diff3 = vectors.sub3(c, d)
+            scaled3 = vectors.scale3(c, 2)
+            dot3 = vectors.dot3(c, d)
+            cross = vectors.cross3(c, d)
+            len3 = vectors.length_sq3(c)
+
+            total = total + dot2 + dot3 + len2 + len3
+            total = total + sum2[0] + diff2[1] + scaled2[0]
+            total = total + sum3[2] + diff3[0] + scaled3[1] + cross[1]
+            i = i + 1
+
+        return total
+
+def main():
+    bench = VectorMathBench(200000)
+    print(bench.run())
+    return 0

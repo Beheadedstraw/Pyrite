@@ -1,0 +1,15 @@
+import file
+
+def main():
+    try:
+        raise "manual failure"
+    except err:
+        print(err)
+
+    try:
+        missing: file = file.open("missing-score.txt", "r").defer()
+        print(file.read_all(missing))
+    except file_error:
+        print(file_error)
+
+    return 0

@@ -1,0 +1,25 @@
+import file
+
+class FileIOBench:
+    def __init__(self, path: string, limit: int):
+        self.path = path
+        self.limit = limit
+
+    def run(self):
+        i = 0
+        out: file = file.open(self.path, "w").defer()
+
+        while i < self.limit:
+            file.write(out, "Ada scored 42\n")
+            i = i + 1
+
+        file.flush(out)
+
+        in_file: file = file.open(self.path, "r").defer()
+        data = file.read_all(in_file)
+        return data.len()
+
+def main():
+    bench = FileIOBench("build/bench_io.txt", 20000)
+    print(bench.run())
+    return 0

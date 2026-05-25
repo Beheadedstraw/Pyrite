@@ -1,0 +1,23 @@
+import random
+
+def main():
+    values: list[any] = ["Ada", 42, 3.5, True]
+    picked: any = random.choice(values)
+
+    print(values)
+    print(picked)
+    print(f"picked = {picked}")
+
+    for value in values:
+        print(value)
+
+    foreach(values):
+        print(item)
+
+    foreach(values, entry):
+        print(entry)
+
+    foreach(["inline", 7, 8.25]):
+        print(item)
+
+    return 0

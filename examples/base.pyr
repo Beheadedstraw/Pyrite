@@ -1,0 +1,56 @@
+import file
+import regex
+import random
+import scoring
+
+global app_name: string = "Ada"
+const max_bonus: int = 6
+
+def main():
+    name: string = app_name
+    scores: list[int] = [10, 32]
+    bonus = random.int(1, max_bonus)
+    defaults = scoring.defaults
+    user: dict = defaults
+    user.name = name
+    user.score = scoring.add(scores[0], scores[1])
+    message = f"{user.name} scored {user.score}"
+
+    print(message)
+    print(f"scores = {scores}")
+    print(f"random bonus = {bonus}")
+    print(f"inherited kind = {user.kind}")
+    for score in scores:
+        print(f"score item = {score}")
+
+    if user.score >= 40:
+        print("score status = passing")
+    else:
+        print("score status = retry")
+
+    loop_count = 0
+    keep_loop = True
+    print("while loop")
+    while keep_loop:
+        print(loop_count)
+        loop_count = loop_count + 1
+        if loop_count >= 2:
+            keep_loop = False
+
+    try:
+        missing: file = file.open("missing-score.txt", "r").defer()
+    except err:
+        print("caught missing file")
+        print(err)
+
+    out: file = file.open("score.txt", "w").defer()
+    file.write(out, f"{message}\n")
+    file.flush(out)
+
+    in_file: file = file.open("score.txt", "r").defer()
+    saved = file.read_all(in_file)
+    print(f"saved: {saved}")
+    matched = regex.match("Ada", saved)
+    print(f"regex matched Ada: {matched}")
+
+    return user.score

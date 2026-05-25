@@ -1,0 +1,26 @@
+class Player:
+    def __init__(self, name: string, score: int):
+        self.name = name
+        self.score = score
+        self.active = True
+
+    def add(self, amount: int):
+        self.score = self.score + amount
+        return self.score
+
+    def label(self):
+        return f"{self.name}: {self.score}"
+
+def main():
+    player = Player("Ada", 40)
+    print(player.name)
+    print(player.score)
+    print(player.label())
+
+    player.add(2)
+    print(player.label())
+
+    if player.active:
+        print("player active")
+
+    return player.score

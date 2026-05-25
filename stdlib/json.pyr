@@ -1,0 +1,42 @@
+# Importable Pyrite JSON module.
+#
+# JSON still uses compiler intrinsics for scalar conversion and flat field
+# extraction until Pyrite grows character indexing, appendable lists, and a full
+# dictionary runtime. The public standard library functions below are Pyrite
+# code and can be imported like any other module.
+
+def stringify(value: any):
+    return __json_stringify_any(value)
+
+def stringify_list(items: list[any]):
+    return __json_stringify_list(items)
+
+def parse(value: string):
+    return __json_parse_any(value)
+
+def parse_array(value: string):
+    return __json_parse_array(value)
+
+def get_string(value: string, key: string):
+    return __json_get_string(value, key)
+
+def get_int(value: string, key: string):
+    return __json_get_int(value, key)
+
+def get_float(value: string, key: string):
+    return __json_get_float(value, key)
+
+def get_bool(value: string, key: string):
+    return __json_get_bool(value, key)
+
+def dumps(value: any):
+    return json.stringify(value)
+
+def dumps_list(items: list[any]):
+    return json.stringify_list(items)
+
+def loads(value: string):
+    return json.parse(value)
+
+def loads_array(value: string):
+    return json.parse_array(value)

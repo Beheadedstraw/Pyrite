@@ -1,0 +1,45 @@
+# Importable Pyrite XML module.
+
+def escape(value: string):
+    escaped = value.replace("&", "&amp;")
+    escaped = escaped.replace("<", "&lt;")
+    escaped = escaped.replace(">", "&gt;")
+    escaped = escaped.replace("\"", "&quot;")
+    escaped = escaped.replace("'", "&apos;")
+    return escaped
+
+def unescape(value: string):
+    text = value.replace("&apos;", "'")
+    text = text.replace("&quot;", "\"")
+    text = text.replace("&gt;", ">")
+    text = text.replace("&lt;", "<")
+    text = text.replace("&amp;", "&")
+    return text
+
+def tag(name: string, text: string):
+    escaped = xml.escape(text)
+    return f"<{name}>{escaped}</{name}>"
+
+def text(value: string, name: string):
+    open_tag = f"<{name}>"
+    close_tag = f"</{name}>"
+    start = value.find(open_tag)
+
+    if start < 0:
+        return ""
+
+    content_start = start + open_tag.len()
+    tail = value.slice(content_start, value.len())
+    end = tail.find(close_tag)
+
+    if end < 0:
+        return ""
+
+    raw = tail.slice(0, end)
+    return xml.unescape(raw)
+
+def element(name: string, text_value: string):
+    return xml.tag(name, text_value)
+
+def get_text(value: string, name: string):
+    return xml.text(value, name)

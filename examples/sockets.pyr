@@ -1,0 +1,14 @@
+import net
+
+def main():
+    tcp: socket = net.tcp("127.0.0.1", 8080).defer()
+    net.write(tcp, "GET / HTTP/1.0\r\n\r\n")
+    tcp_reply = net.read(tcp, 1024)
+    print(f"tcp reply = {tcp_reply}")
+
+    udp: socket = net.udp("127.0.0.1", 9000).defer()
+    net.write(udp, "ping")
+    udp_reply = net.read(udp, 1024)
+    print(f"udp reply = {udp_reply}")
+
+    return 0

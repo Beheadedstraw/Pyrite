@@ -1,0 +1,23 @@
+import file
+import net
+
+def main():
+    try:
+        missing: file = file.open("missing-score.txt", "r").defer()
+        print(file.read_all(missing))
+    except file_error:
+        print(file_error)
+
+    try:
+        tcp: socket = net.tcp("127.0.0.1", 1).defer()
+        net.write(tcp, "hello")
+    except net_error:
+        print(net_error)
+
+    try:
+        server: listener = net.listen("127.0.0.1", 1).defer()
+        print("unreachable")
+    except listen_error:
+        print(listen_error)
+
+    return 0

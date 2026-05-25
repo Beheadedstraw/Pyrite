@@ -1,0 +1,81 @@
+{
+  "main function": {
+    "prefix": "main",
+    "body": [
+      "def main():",
+      "    ${1:print(\"hello from pyrite\")}",
+      "    return ${2:0}"
+    ],
+    "description": "Create a Pyrite main function"
+  },
+  "function": {
+    "prefix": "def",
+    "body": [
+      "def ${1:name}(${2:arg: int}):",
+      "    ${3:return arg}"
+    ],
+    "description": "Create a Pyrite function"
+  },
+  "class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name}:",
+      "    def __init__(self, ${2:value: int}):",
+      "        self.${3:value} = ${4:value}",
+      "",
+      "    def ${5:method}(self):",
+      "        return self.${3:value}"
+    ],
+    "description": "Create a Pyrite class"
+  },
+  "if else": {
+    "prefix": "ifelse",
+    "body": [
+      "if ${1:condition}:",
+      "    ${2:pass}",
+      "else:",
+      "    ${3:pass}"
+    ],
+    "description": "Create an if/else block"
+  },
+  "while": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition}:",
+      "    ${2:body}"
+    ],
+    "description": "Create a while loop"
+  },
+  "foreach": {
+    "prefix": "foreach",
+    "body": [
+      "foreach(${1:items}, ${2:item}):",
+      "    ${3:print(${2:item})}"
+    ],
+    "description": "Create a foreach loop"
+  },
+  "try except": {
+    "prefix": "try",
+    "body": [
+      "try:",
+      "    ${1:body}",
+      "except ${2:err}:",
+      "    print(${2:err})"
+    ],
+    "description": "Create a try/except block"
+  },
+  "file open defer": {
+    "prefix": "fileopen",
+    "body": [
+      "${1:handle}: file = file.open(\"${2:path.txt}\", \"${3:r}\").defer()"
+    ],
+    "description": "Open a file with automatic defer cleanup"
+  },
+  "import stdlib": {
+    "prefix": "import",
+    "body": [
+      "import ${1|file,net,regex,random,routines,strings,ints,floats,json,xml,vectors|}"
+    ],
+    "description": "Import a Pyrite standard library module"
+  }
+}

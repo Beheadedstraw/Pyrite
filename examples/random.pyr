@@ -1,0 +1,11 @@
+import random
+
+def main():
+    random.seed(123)
+    scores: list[int] = [10, 20, 30, 40]
+
+    print(f"random int = {random.int(1, 6)}")
+    print(f"random float = {random.float()}")
+    print(f"random choice = {random.choice(scores)}")
+
+    return 0

@@ -1,0 +1,227 @@
+import http
+
+def route_api(request: string, cors_origins: list[any]):
+    method = http.request_method(request)
+    path = http.path(request)
+
+    if http.is_preflight(request):
+        return http.cors_preflight(request, cors_origins)
+
+    switch path:
+        case "/api/ping":
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 30\r\nConnection: keep-alive\r\n\r\n{\"ok\":true,\"service\":\"pyrite\"}"
+        case "/api/score":
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 25\r\nConnection: keep-alive\r\n\r\n{\"name\":\"Ada\",\"score\":42}"
+        case "/api/text":
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 18\r\nConnection: keep-alive\r\n\r\nhello from Pyrite\n"
+        case "/api/user":
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 91\r\nConnection: keep-alive\r\n\r\n{\"id\":42,\"name\":\"Ada Lovelace\",\"language\":\"Pyrite\",\"active\":true,\"roles\":[\"admin\",\"bench\"]}"
+        case "/api/items":
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 92\r\nConnection: keep-alive\r\n\r\n[{\"id\":1,\"name\":\"one\"},{\"id\":2,\"name\":\"two\"},{\"id\":3,\"name\":\"three\"},{\"id\":4,\"name\":\"four\"}]"
+        case "/api/compute":
+            return compute_response("keep-alive")
+        case "/api/auth":
+            return auth_response("keep-alive", request)
+        case "/api/search":
+            return search_response("keep-alive", request)
+        case "/api/report":
+            return report_response("keep-alive")
+        case "/api/profile":
+            return profile_response("keep-alive")
+        case "/api/transform":
+            return transform_response("keep-alive")
+        case "/api/dashboard":
+            return dashboard_response("keep-alive")
+        default:
+            return "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: 21\r\nConnection: keep-alive\r\n\r\n{\"error\":\"not found\"}"
+
+def compute_response(connection: string):
+    total = 0
+    i = 0
+
+    while i < 500:
+        step = i * 3
+        total = total + step
+        i = i + 1
+
+    return http.text_conn(f"total={total}\n", connection)
+
+def auth_response(connection: string, request: string):
+    score = 0
+    i = 0
+    host_seen = 0
+    keep_seen = 0
+
+    if request.contains("Host:"):
+        host_seen = 1
+    if request.contains("keep-alive"):
+        keep_seen = 1
+
+    while i < 120:
+        step = i * 17
+        score = score + step + host_seen + keep_seen
+        i = i + 1
+
+    return http.text_conn(f"authenticated=true\nclaims=3\nscore={score}\n", connection)
+
+def search_response(connection: string, request: string):
+    query = "ada"
+    hits = 0
+    score = 0
+    i = 0
+
+    if request.contains("q=hopper"):
+        query = "hopper"
+    if request.contains("q=math"):
+        query = "math"
+
+    while i < 80:
+        if query.contains("ada"):
+            hits = hits + 1
+            score = score + i + 7
+        if query.contains("hopper"):
+            hits = hits + 1
+            score = score + i + 11
+        if query.contains("math"):
+            hits = hits + 2
+            score = score + i + 17
+        i = i + 1
+
+    return http.text_conn(f"query={query}\nhits={hits}\nscore={score}\n", connection)
+
+def report_response(connection: string):
+    revenue = 0
+    cost = 0
+    day = 1
+
+    while day < 91:
+        revenue_step = day * 37
+        cost_step = day * 19
+        revenue = revenue + revenue_step
+        cost = cost + cost_step + day
+        day = day + 1
+
+    margin = revenue - cost
+    return http.text_conn(f"quarter=Q1\nrevenue={revenue}\ncost={cost}\nmargin={margin}\n", connection)
+
+def profile_response(connection: string):
+    points = 0
+    streak = 0
+    i = 0
+
+    while i < 240:
+        step = i * 9
+        points = points + step
+        if i < 50:
+            streak = streak + 1
+        i = i + 1
+
+    return http.text_conn(f"id=42\nname=Ada Lovelace\nplan=pro\nregion=us-central\npoints={points}\nstreak={streak}\n", connection)
+
+def transform_response(connection: string):
+    text = "  Ada,Lovelace,Compiler,Math,Notes  "
+    current = text
+    total = 0
+    i = 0
+
+    while i < 180:
+        current = current.strip().upper().replace(",", "|").replace("NOTES", "REPORT")
+        if current.contains("COMPILER"):
+            total = total + current.len() + i
+        i = i + 1
+
+    return http.text_conn(f"text={current}\ntotal={total}\n", connection)
+
+def dashboard_response(connection: string):
+    active = 0
+    errors = 0
+    latency = 0
+    i = 0
+
+    while i < 300:
+        active_step = i * 3
+        latency_step = i * i
+        active = active + active_step
+        latency = latency + latency_step
+        if i < 9:
+            errors = errors + 1
+        i = i + 1
+
+    return http.text_conn(f"service=pyrite-bench\nwindow=5m\nactive={active}\nerrors={errors}\nlatency={latency}\nstatus=ok\n", connection)
+
+def write_compute(client: socket):
+    total = 0
+    i = 0
+
+    while i < 500:
+        step = i * 3
+        total = total + step
+        i = i + 1
+
+    return http.write_response(client, f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\nConnection: keep-alive\r\n\r\ntotal={total}\n")
+
+def write_route(client: socket, request: string, cors_origins: list[any]):
+    method = http.request_method(request)
+    path = http.path(request)
+
+    if http.is_preflight(request):
+        return http.write_response(client, http.cors_preflight(request, cors_origins))
+
+    switch path:
+        case "/api/ping":
+            return http.write_response(client, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 30\r\nConnection: keep-alive\r\n\r\n{\"ok\":true,\"service\":\"pyrite\"}")
+        case "/api/score":
+            return http.write_response(client, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 25\r\nConnection: keep-alive\r\n\r\n{\"name\":\"Ada\",\"score\":42}")
+        case "/api/text":
+            return http.write_response(client, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 18\r\nConnection: keep-alive\r\n\r\nhello from Pyrite\n")
+        case "/api/user":
+            return http.write_response(client, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 91\r\nConnection: keep-alive\r\n\r\n{\"id\":42,\"name\":\"Ada Lovelace\",\"language\":\"Pyrite\",\"active\":true,\"roles\":[\"admin\",\"bench\"]}")
+        case "/api/items":
+            return http.write_response(client, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 92\r\nConnection: keep-alive\r\n\r\n[{\"id\":1,\"name\":\"one\"},{\"id\":2,\"name\":\"two\"},{\"id\":3,\"name\":\"three\"},{\"id\":4,\"name\":\"four\"}]")
+        case "/api/compute":
+            return write_compute(client)
+        case "/api/auth":
+            return http.write_response(client, auth_response("keep-alive", request))
+        case "/api/search":
+            return http.write_response(client, search_response("keep-alive", request))
+        case "/api/report":
+            return http.write_response(client, report_response("keep-alive"))
+        case "/api/profile":
+            return http.write_response(client, profile_response("keep-alive"))
+        case "/api/transform":
+            return http.write_response(client, transform_response("keep-alive"))
+        case "/api/dashboard":
+            return http.write_response(client, dashboard_response("keep-alive"))
+        default:
+            return http.write_response(client, "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: 21\r\nConnection: keep-alive\r\n\r\n{\"error\":\"not found\"}")
+
+def handle_client(client: socket, cors_origins: list[any]):
+    open = True
+
+    while open:
+        request = http.read_request(client)
+        if request == "":
+            open = False
+        else:
+            write_route(client, request, cors_origins)
+            if http.should_close(request):
+                open = False
+
+    http.close(client)
+    return 0
+
+def serve_fixed(host: string, port: int, requests: int, cors_origins: list[any]):
+    http.tune_workers()
+    server: listener = http.listen_backlog(host, port, 128).defer()
+    handled = 0
+
+    while handled < requests:
+        client: socket = http.accept(server)
+        async(handle_client(client, cors_origins))
+        handled = handled + 1
+
+    return handled
+
+def main():
+    cors_origins: list[any] = ["https://app.example", "https://admin.example"]
+    return serve_fixed("127.0.0.1", 8091, 10000000, cors_origins)

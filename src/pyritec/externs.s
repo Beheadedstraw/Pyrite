@@ -1,0 +1,16 @@
+.section .text
+.extern fclose
+.extern fgets
+.extern fopen
+.extern fprintf
+.extern fputc
+.extern fputs
+.extern puts
+.extern printf
+.extern remove
+.extern snprintf
+.extern stderr
+.extern strtol
+.extern strncmp
+.extern strchr
+.extern system

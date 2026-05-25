@@ -1,0 +1,30 @@
+import json
+
+class JsonBench:
+    def __init__(self, limit: int):
+        self.limit = limit
+        self.payload = "{\"name\":\"Ada\",\"score\":42,\"active\":true}"
+
+    def run(self):
+        i = 0
+        total = 0
+        values: list[any] = ["Ada", 42, 3.5, True]
+
+        while i < self.limit:
+            encoded = json.dumps_list(values)
+            decoded: list[any] = json.loads_array(encoded)
+            name = json.get_string(self.payload, "name")
+            score = json.get_int(self.payload, "score")
+            active = json.get_bool(self.payload, "active")
+
+            if active:
+                total = total + score
+
+            i = i + 1
+
+        return total
+
+def main():
+    bench = JsonBench(100000)
+    print(bench.run())
+    return 0

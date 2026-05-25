@@ -1,0 +1,19 @@
+import strings
+
+def main():
+    raw = "  Ada Lovelace  "
+    ada = "Ada"
+    love = "Love"
+    lace = "lace"
+    cleaned = raw.strip()
+    print(cleaned)
+    print(cleaned.upper())
+    print(cleaned.lower())
+    print(cleaned.replace(ada, "Augusta"))
+    print(f"contains Love = {cleaned.contains(love)}")
+    print(f"starts Ada = {cleaned.startswith(ada)}")
+    print(f"ends lace = {cleaned.endswith(lace)}")
+    print(f"find Love = {cleaned.find(love)}")
+    print(f"len = {cleaned.len()}")
+    print(strings.upper("module call"))
+    return cleaned.len()

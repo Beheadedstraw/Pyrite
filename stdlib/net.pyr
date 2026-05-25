@@ -1,0 +1,19 @@
+# Runtime-backed client socket bindings.
+
+native def tcp(host: string, port: int) -> socket = pyrite_socket_open_tcp
+native def udp(host: string, port: int) -> socket = pyrite_socket_open_udp
+native def listen(host: string, port: int) -> listener = pyrite_socket_listen_tcp
+native def listen_backlog(host: string, port: int, backlog: int) -> listener = pyrite_socket_listen_tcp_backlog
+native def accept(server: listener) -> socket = pyrite_socket_accept
+native def read(sock: socket, max_bytes: int) -> string = pyrite_socket_read
+native def write(sock: socket, data: string) -> int = pyrite_socket_write
+native def set_nonblocking(sock: socket, enabled: bool) -> int = pyrite_socket_set_nonblocking_value
+native def set_listener_nonblocking(server: listener, enabled: bool) -> int = pyrite_listener_set_nonblocking_value
+native def read_ready(sock: socket, timeout_ms: int) -> bool = pyrite_socket_read_ready
+native def accept_ready(server: listener, timeout_ms: int) -> bool = pyrite_listener_read_ready
+native def close(sock: socket) -> int = pyrite_socket_close_value
+native def close_listener(server: listener) -> int = pyrite_listener_close_value
+native def last_error() -> string = pyrite_last_error_value
+
+# Compiler-backed generic event loop:
+# net.serve_delimited(host, port, delimiter, handler, should_close, max_messages)

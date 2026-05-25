@@ -1,0 +1,5 @@
+# Runtime-backed routine helpers.
+
+native def lock(m: mux) -> int = pyrite_mux_lock_value
+native def unlock(m: mux) -> int = pyrite_mux_unlock_value
+native def workers(count: int) -> int = pyrite_routine_set_workers
