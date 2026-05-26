@@ -92,11 +92,12 @@ func (p *pyriteParser) parseBinding(global, immutable bool) (*pyriteBindingDecl,
 	if err != nil {
 		return nil, err
 	}
-	if err := validatePyriteExpressionTokens(value); err != nil {
+	valueExpr, err := parsePyriteExpressionTokens(value)
+	if err != nil {
 		return nil, err
 	}
 	return &pyriteBindingDecl{
-		Name: name.Lexeme, Type: typ, Value: tokensText(value), Const: immutable,
+		Name: name.Lexeme, Type: typ, Value: tokensText(value), ValueExpr: valueExpr, Const: immutable,
 		Global: global, Line: line, LineText: tokensText(value), LineIndent: 0,
 	}, nil
 }

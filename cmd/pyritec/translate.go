@@ -82,9 +82,8 @@ func (c *Compiler) collectTopLevelItem(item pyriteTopLevel, moduleName string) e
 			return fmt.Errorf("line %d: %w", node.Line, err)
 		}
 	case *pyriteBindingDecl:
-		source := bindingSource(node)
 		if moduleName != "" && !node.Global && !node.Const {
-			return c.emitModuleGlobal(node.Line, moduleName, source)
+			return c.emitModuleGlobalAST(node.Line, moduleName, node)
 		}
 		if moduleName != "" {
 			return fmt.Errorf("line %d: module globals are not supported yet", node.Line)
@@ -92,7 +91,7 @@ func (c *Compiler) collectTopLevelItem(item pyriteTopLevel, moduleName string) e
 		if !node.Global && !node.Const {
 			return fmt.Errorf("line %d: statement outside function", node.Line)
 		}
-		return c.emitGlobal(node.Line, source, node.Const)
+		return c.emitGlobalAST(node.Line, node)
 	case *pyriteFunctionDecl:
 		fn, err := functionFromAST(node, moduleName, "")
 		if err != nil {
@@ -180,14 +179,6 @@ func functionFromAST(decl *pyriteFunctionDecl, moduleName, className string) (*f
 		}
 	}
 	return fn, nil
-}
-
-func bindingSource(decl *pyriteBindingDecl) string {
-	left := decl.Name
-	if decl.Type != "" {
-		left += ": " + decl.Type
-	}
-	return left + " = " + decl.Value
 }
 
 func (c *Compiler) collectEnum(decl *pyriteEnumDecl) error {

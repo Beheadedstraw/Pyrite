@@ -19,6 +19,7 @@ type pyriteBindingDecl struct {
 	Name       string
 	Type       string
 	Value      string
+	ValueExpr  pyriteExpr
 	Const      bool
 	Global     bool
 	Line       int

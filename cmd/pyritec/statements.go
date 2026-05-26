@@ -1329,82 +1329,72 @@ func (c *Compiler) activeTry() (int, bool) {
 	return 0, false
 }
 
-func (c *Compiler) emitGlobal(lineNo int, s string, immutable bool) error {
-	parts := strings.SplitN(s, "=", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("line %d: invalid global declaration", lineNo)
+func (c *Compiler) emitGlobalAST(lineNo int, decl *pyriteBindingDecl) error {
+	annotated := ""
+	if decl.Type != "" {
+		kind, err := normalizeType(decl.Type)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		annotated = kind
 	}
-	target, err := parseBindingTarget(parts[0])
+	code, kind, err := c.exprAST(decl.ValueExpr)
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
-	name := target.name
-	value := strings.TrimSpace(parts[1])
-	if strings.HasPrefix(name, "const ") {
-		immutable = true
-		name = strings.TrimSpace(strings.TrimPrefix(name, "const "))
-	}
-	if c.consts[name] {
-		return fmt.Errorf("line %d: cannot reassign immutable %s", lineNo, name)
-	}
-	code, kind, err := c.expr(value)
-	if err != nil {
-		return fmt.Errorf("line %d: %w", lineNo, err)
-	}
-	if err := checkType(lineNo, name, target.annotated, kind); err != nil {
+	if err := checkType(lineNo, decl.Name, annotated, kind); err != nil {
 		return err
 	}
 	storeKind := kind
-	if target.annotated != "" {
-		storeKind = target.annotated
+	if annotated != "" {
+		storeKind = annotated
 	}
-	c.types[name] = storeKind
-	if immutable {
-		c.consts[name] = true
+	c.types[decl.Name] = storeKind
+	if decl.Const {
+		c.consts[decl.Name] = true
 	}
 	qualifier := ""
-	if immutable {
+	if decl.Const {
 		qualifier = "const "
 	}
 	switch storeKind {
 	case "int":
-		c.globals.WriteString(fmt.Sprintf("static %slong %s = %s;\n", qualifier, name, code))
+		c.globals.WriteString(fmt.Sprintf("static %slong %s = %s;\n", qualifier, decl.Name, code))
 	case "float":
-		c.globals.WriteString(fmt.Sprintf("static %sdouble %s = %s;\n", qualifier, name, code))
+		c.globals.WriteString(fmt.Sprintf("static %sdouble %s = %s;\n", qualifier, decl.Name, code))
 	case "bool":
-		c.globals.WriteString(fmt.Sprintf("static %sint %s = %s;\n", qualifier, name, code))
+		c.globals.WriteString(fmt.Sprintf("static %sint %s = %s;\n", qualifier, decl.Name, code))
 	case "string":
-		c.globals.WriteString(fmt.Sprintf("static %schar *%s = %s;\n", qualifier, name, code))
+		c.globals.WriteString(fmt.Sprintf("static %schar *%s = %s;\n", qualifier, decl.Name, code))
 	default:
-		return fmt.Errorf("line %d: global %s cannot use %s yet", lineNo, name, storeKind)
+		return fmt.Errorf("line %d: global %s cannot use %s yet", lineNo, decl.Name, storeKind)
 	}
 	return nil
 }
 
-func (c *Compiler) emitModuleGlobal(lineNo int, moduleName, s string) error {
-	parts := strings.SplitN(s, "=", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("line %d: invalid module global declaration", lineNo)
-	}
-	target, err := parseBindingTarget(parts[0])
-	if err != nil {
-		return fmt.Errorf("line %d: %w", lineNo, err)
-	}
-	if target.name == "" || strings.Contains(target.name, ".") {
+func (c *Compiler) emitModuleGlobalAST(lineNo int, moduleName string, decl *pyriteBindingDecl) error {
+	if decl.Name == "" || strings.Contains(decl.Name, ".") {
 		return fmt.Errorf("line %d: invalid module global name", lineNo)
 	}
-	sourceName := moduleName + "." + target.name
-	value := strings.TrimSpace(parts[1])
-	code, kind, err := c.expr(value)
+	sourceName := moduleName + "." + decl.Name
+	annotated := ""
+	if decl.Type != "" {
+		kind, err := normalizeType(decl.Type)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		annotated = kind
+	}
+	code, kind, err := c.exprAST(decl.ValueExpr)
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
-	if err := checkType(lineNo, sourceName, target.annotated, kind); err != nil {
+	if err := checkType(lineNo, sourceName, annotated, kind); err != nil {
 		return err
 	}
 	storeKind := kind
-	if target.annotated != "" {
-		storeKind = target.annotated
+	if annotated != "" {
+		storeKind = annotated
 	}
 	c.types[sourceName] = storeKind
 	cName := c.variableCName(sourceName)
