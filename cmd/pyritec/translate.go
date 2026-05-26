@@ -10,62 +10,38 @@ import (
 )
 
 func (c *Compiler) translate(source string) error {
-	if err := c.collectSource(source, ""); err != nil {
-		return err
-	}
-	if err := c.inferClassFields(); err != nil {
-		return err
-	}
-	c.globalTypes = copyStringMap(c.types)
+	return (&compilerPipeline{compiler: c, source: source}).run()
+}
 
-	mainDef := c.functions["main"]
-	if mainDef == nil {
-		return fmt.Errorf("missing def main()")
-	}
-	if len(mainDef.params) != 0 {
-		return fmt.Errorf("def main() cannot take parameters yet")
-	}
-	if err := c.compileMain(mainDef); err != nil {
+func (c *Compiler) collectSource(source string, moduleName string) error {
+	return c.collectSourcePath(source, moduleName, "")
+}
+
+func (c *Compiler) collectSourcePath(source string, moduleName string, path string) error {
+	program, err := parsePyriteProgram(source)
+	if err != nil {
 		return err
 	}
-	for _, name := range c.functionOrder {
-		if name == "main" {
-			continue
-		}
-		if c.functions[name].nativeSymbol != "" {
-			continue
-		}
-		if err := c.inferFunctionReturn(c.functions[name]); err != nil {
-			return err
-		}
-	}
-	c.emitFunctionPrototypes()
-	c.emitClassConstructors()
-	for _, name := range c.functionOrder {
-		if name == "main" {
-			continue
-		}
-		if c.functions[name].nativeSymbol != "" {
-			continue
-		}
-		if err := c.compileFunction(c.functions[name]); err != nil {
+	module := c.addParsedModule(moduleName, path, program)
+	for _, item := range module.program.Items {
+		if err := c.collectTopLevelItem(item, moduleName); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Compiler) collectSource(source string, moduleName string) error {
-	program, err := parsePyriteProgram(source)
-	if err != nil {
-		return err
+func (c *Compiler) addParsedModule(name, path string, program *pyriteProgram) *pyriteModule {
+	key := name
+	if key == "" {
+		key = "<main>"
 	}
-	for _, item := range program.Items {
-		if err := c.collectTopLevelItem(item, moduleName); err != nil {
-			return err
-		}
+	module := &pyriteModule{name: name, path: path, program: program}
+	if _, exists := c.modules[key]; !exists {
+		c.moduleOrder = append(c.moduleOrder, key)
 	}
-	return nil
+	c.modules[key] = module
+	return module
 }
 
 func (c *Compiler) collectTopLevelItem(item pyriteTopLevel, moduleName string) error {
@@ -271,7 +247,7 @@ func (c *Compiler) loadModule(name string) error {
 		}
 		data, err := os.ReadFile(path)
 		if err == nil {
-			return c.collectSource(string(data), name)
+			return c.collectSourcePath(string(data), name, path)
 		}
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("could not read module %s: %w", name, err)

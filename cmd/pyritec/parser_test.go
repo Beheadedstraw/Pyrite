@@ -175,6 +175,9 @@ def main():
 	if compiler.functions["helper"] == nil || compiler.functions["main"] == nil {
 		t.Fatalf("expected functions from AST collector, got %#v", compiler.functions)
 	}
+	if compiler.modules["<main>"] == nil || len(compiler.moduleOrder) != 1 {
+		t.Fatalf("expected parsed main module to be retained, got modules=%#v order=%#v", compiler.modules, compiler.moduleOrder)
+	}
 	if _, ok := compiler.functions["helper"].astBody[0].(*pyriteReturnStmt); !ok {
 		t.Fatalf("expected AST return statement, got %#v", compiler.functions["helper"].astBody[0])
 	}
@@ -232,6 +235,16 @@ def main():
 	}
 	if !strings.Contains(body, "return (-1);") {
 		t.Fatalf("expected AST unary return emission, got:\n%s", body)
+	}
+	if compiler.hir == nil || compiler.hir.Functions["add"] == nil {
+		t.Fatalf("expected analyzed compiler to retain HIR, got %#v", compiler.hir)
+	}
+	addHIR := compiler.hir.Functions["add"]
+	if addHIR.ReturnType != "int" {
+		t.Fatalf("expected HIR return type int, got %q", addHIR.ReturnType)
+	}
+	if len(addHIR.Body) == 0 || addHIR.Body[0].Kind != "var" || addHIR.Body[0].Name != "out" {
+		t.Fatalf("expected lowered var statement in HIR, got %#v", addHIR.Body)
 	}
 }
 
@@ -338,6 +351,56 @@ def main():
 	if !strings.Contains(body, "if (value == 1) {") ||
 		!strings.Contains(body, "return __pyrite_return;\n    }\n    int __pyrite_return = (int)(0);") {
 		t.Fatalf("expected if block to close before following return, got:\n%s", body)
+	}
+}
+
+func TestCompilerPipelineRejectsInvalidSemanticsBeforeEmission(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "bad assignment target",
+			source: `
+def main():
+    (1 + 2) = 3
+    return 0
+`,
+			want: "unsupported assignment target",
+		},
+		{
+			name: "bad loop variable",
+			source: `
+def main():
+    items: list[int] = [1]
+    for self.value in items:
+        print(1)
+    return 0
+`,
+			want: "invalid loop variable",
+		},
+		{
+			name: "bad local name",
+			source: `
+def main():
+    self.value: int = 1
+    return 0
+`,
+			want: "invalid variable name",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			compiler := NewCompiler("test.pyr", "/tmp/test")
+			err := compiler.translate(tc.source)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q error, got %v", tc.want, err)
+			}
+			if compiler.body.Len() != 0 && !strings.Contains(compiler.body.String(), "int main(void)") {
+				t.Fatalf("expected semantic error before full emission, got body:\n%s", compiler.body.String())
+			}
+		})
 	}
 }
 

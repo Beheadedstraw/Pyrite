@@ -24,6 +24,9 @@ type Compiler struct {
 	functionOrder []string
 	classes       map[string]*classDef
 	enums         map[string]map[string]int
+	modules       map[string]*pyriteModule
+	moduleOrder   []string
+	hir           *pyriteHIRProgram
 	defers        []string
 	globals       bytes.Buffer
 	prototypes    bytes.Buffer
@@ -68,6 +71,12 @@ type classDef struct {
 	methods map[string]*functionDef
 }
 
+type pyriteModule struct {
+	name    string
+	path    string
+	program *pyriteProgram
+}
+
 func NewCompiler(srcPath, outPath string) *Compiler {
 	return &Compiler{
 		srcPath:       srcPath,
@@ -81,6 +90,7 @@ func NewCompiler(srcPath, outPath string) *Compiler {
 		functions:     map[string]*functionDef{},
 		classes:       map[string]*classDef{},
 		enums:         map[string]map[string]int{},
+		modules:       map[string]*pyriteModule{},
 	}
 }
 
