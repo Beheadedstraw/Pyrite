@@ -263,6 +263,60 @@ def main():
 	}
 }
 
+func TestCompilerEmitsControlStatementsFromAST(t *testing.T) {
+	source := `
+def make_values():
+    return [1, 2]
+
+def shout(value: int):
+    print(value)
+
+def main():
+    total: int = 0
+    for value in make_values():
+        total = total + value
+    foreach(make_values(), each):
+        total = total + each
+    match total:
+        case 6:
+            print("six")
+        case _:
+            print("other")
+    lock = mux()
+    routine(print(total), lock)
+    async(shout(total), lock)
+    if total == 3:
+        print("ok")
+    else:
+        print("bad")
+    try:
+        raise "boom"
+    except err:
+        print(err)
+    return total
+`
+	compiler := NewCompiler("test.pyr", "/tmp/test")
+	if err := compiler.translate(source); err != nil {
+		t.Fatalf("translate failed: %v", err)
+	}
+	body := compiler.body.String()
+	for _, want := range []string{
+		"__pyrite_foreach_",
+		"for (size_t __i_value = 0;",
+		"__pyrite_switch_",
+		"if (__pyrite_switch_",
+		"pyrite_routine_print_int(total, lock);",
+		"pyrite_start_task(pyrite_routine_call_",
+		"} else {",
+		"goto __pyrite_except_",
+		"char *err = __pyrite_error ? __pyrite_error : \"\";",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in AST emitted body, got:\n%s", want, body)
+		}
+	}
+}
+
 func TestCompilerClosesASTIfBlocks(t *testing.T) {
 	source := `
 def main():

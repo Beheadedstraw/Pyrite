@@ -437,12 +437,26 @@ func parsePyriteStatementTokens(tokens []pyriteToken, line, indent int) (pyriteS
 	case "for":
 		return parseForStatement(tokens, base)
 	case "foreach":
-		if len(tokens) >= 4 && tokens[1].Type == tokenLParen {
-			if err := validateCallArgumentExpressions(tokens[2 : len(tokens)-2]); err != nil {
-				return nil, err
-			}
+		expr, err := parsePyriteExpressionTokens(trimTrailingColon(tokens))
+		if err != nil {
+			return nil, err
 		}
-		return &pyriteControlStmt{pyriteStmtBase: base, Kind: first}, nil
+		call, ok := expr.(*pyriteCallExpr)
+		if !ok {
+			return nil, fmt.Errorf("line %d:%d: invalid foreach statement", tokens[0].Line, tokens[0].Column)
+		}
+		if len(call.Args) < 1 || len(call.Args) > 2 {
+			return nil, fmt.Errorf("line %d:%d: foreach expects list and optional item name", tokens[0].Line, tokens[0].Column)
+		}
+		itemName := "item"
+		if len(call.Args) == 2 {
+			name, ok := call.Args[1].(*pyriteNameExpr)
+			if !ok || !isIdentifier(name.Name) {
+				return nil, fmt.Errorf("line %d:%d: invalid foreach item name", tokens[0].Line, tokens[0].Column)
+			}
+			itemName = name.Name
+		}
+		return &pyriteForStmt{pyriteStmtBase: base, Target: itemName, Iterable: call.Args[0]}, nil
 	}
 	if tokens[0].Lexeme == "print" || tokens[0].Lexeme == "routine" || tokens[0].Lexeme == "async" {
 		expr, err := parsePyriteExpressionTokens(tokens)

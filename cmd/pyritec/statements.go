@@ -256,6 +256,41 @@ func (c *Compiler) emitWhileHeaderAST(lineNo, indent int, condition pyriteExpr) 
 	return nil
 }
 
+func (c *Compiler) emitElseAST(lineNo int) error {
+	if len(c.blockStack) == 0 || c.blockStack[len(c.blockStack)-1].kind != "if" {
+		return fmt.Errorf("line %d: else without if", lineNo)
+	}
+	c.body.WriteString("    } else {\n")
+	return nil
+}
+
+func (c *Compiler) emitTryHeaderAST(indent int) error {
+	tryID := c.nextTryID
+	c.nextTryID++
+	c.blockStack = append(c.blockStack, block{kind: "try", indent: indent, tryID: tryID})
+	return nil
+}
+
+func (c *Compiler) emitExceptHeaderAST(lineNo int, header string) error {
+	if len(c.blockStack) == 0 || c.blockStack[len(c.blockStack)-1].kind != "try" {
+		return fmt.Errorf("line %d: except without try", lineNo)
+	}
+	top := c.blockStack[len(c.blockStack)-1]
+	name, err := parseExceptName(header)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	c.body.WriteString(fmt.Sprintf("    goto __pyrite_after_try_%d;\n", top.tryID))
+	c.body.WriteString(fmt.Sprintf("__pyrite_except_%d:\n", top.tryID))
+	c.body.WriteString("    ;\n")
+	if name != "" {
+		c.types[name] = "string"
+		c.body.WriteString(fmt.Sprintf("        char *%s = __pyrite_error ? __pyrite_error : \"\";\n", name))
+	}
+	c.blockStack[len(c.blockStack)-1].kind = "except"
+	return nil
+}
+
 func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 	parts := strings.SplitN(s, "=", 2)
 	if len(parts) != 2 {
@@ -654,21 +689,59 @@ func (c *Compiler) emitListLoop(lineNo, indent int, listName, itemName string) e
 		return fmt.Errorf("line %d: foreach currently expects a list variable", lineNo)
 	}
 	listKind := c.types[listName]
+	return c.emitListLoopCode(lineNo, indent, listName, listKind, itemName)
+}
+
+func (c *Compiler) emitListLoopCode(lineNo, indent int, listCode, listKind, itemName string) error {
+	if !isIdentifier(itemName) {
+		return fmt.Errorf("line %d: invalid foreach item name %q", lineNo, itemName)
+	}
 	if !isListKind(listKind) {
 		return fmt.Errorf("line %d: foreach currently supports lists", lineNo)
 	}
 	itemKind := listElementKind(listKind)
 	if listKind != "list_int" {
 		c.types[itemName] = itemKind
-		c.body.WriteString(fmt.Sprintf("    for (size_t __i_%s = 0; __i_%s < %s.len; __i_%s++) {\n", itemName, itemName, listName, itemName))
-		c.body.WriteString(fmt.Sprintf("        %s %s = %s;\n", c.cType(itemKind), itemName, anyAccess(fmt.Sprintf("%s.items[__i_%s]", listName, itemName), itemKind)))
+		c.body.WriteString(fmt.Sprintf("    for (size_t __i_%s = 0; __i_%s < %s.len; __i_%s++) {\n", itemName, itemName, listCode, itemName))
+		c.body.WriteString(fmt.Sprintf("        %s %s = %s;\n", c.cType(itemKind), itemName, anyAccess(fmt.Sprintf("%s.items[__i_%s]", listCode, itemName), itemKind)))
 		c.blockStack = append(c.blockStack, block{kind: "for", indent: indent})
 		return nil
 	}
 	c.types[itemName] = "int"
-	c.body.WriteString(fmt.Sprintf("    for (size_t __i_%s = 0; __i_%s < %s.len; __i_%s++) {\n", itemName, itemName, listName, itemName))
-	c.body.WriteString(fmt.Sprintf("        long %s = %s.items[__i_%s];\n", itemName, listName, itemName))
+	c.body.WriteString(fmt.Sprintf("    for (size_t __i_%s = 0; __i_%s < %s.len; __i_%s++) {\n", itemName, itemName, listCode, itemName))
+	c.body.WriteString(fmt.Sprintf("        long %s = %s.items[__i_%s];\n", itemName, listCode, itemName))
 	c.blockStack = append(c.blockStack, block{kind: "for", indent: indent})
+	return nil
+}
+
+func (c *Compiler) emitForHeaderAST(lineNo, indent int, itemName string, iterable pyriteExpr) error {
+	if !isIdentifier(itemName) {
+		return fmt.Errorf("line %d: invalid foreach item name %q", lineNo, itemName)
+	}
+	if iterable == nil {
+		return fmt.Errorf("line %d: missing for iterable", lineNo)
+	}
+	if name, ok := iterable.(*pyriteNameExpr); ok {
+		return c.emitListLoop(lineNo, indent, name.Name, itemName)
+	}
+	code, kind, err := c.exprAST(iterable)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if !isListKind(kind) {
+		return fmt.Errorf("line %d: foreach expects a list, got %s", lineNo, kind)
+	}
+	c.nextTempID++
+	tempName := fmt.Sprintf("__pyrite_foreach_%d", c.nextTempID)
+	c.types[tempName] = kind
+	c.body.WriteString(fmt.Sprintf("    %s %s = %s;\n", c.cType(kind), tempName, code))
+	if err := c.emitListLoopCode(lineNo, indent, tempName, kind, itemName); err != nil {
+		return err
+	}
+	if kind != "list_int" && len(c.blockStack) > 0 {
+		top := &c.blockStack[len(c.blockStack)-1]
+		top.postCleanups = append(top.postCleanups, fmt.Sprintf("    pyrite_release_any_list(&%s);\n", tempName))
+	}
 	return nil
 }
 
@@ -702,6 +775,21 @@ func (c *Compiler) emitSwitch(lineNo, indent int, expr string) error {
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
+	return c.emitSwitchCode(lineNo, indent, code, kind)
+}
+
+func (c *Compiler) emitSwitchAST(lineNo, indent int, expr pyriteExpr) error {
+	if expr == nil {
+		return fmt.Errorf("line %d: missing switch expression", lineNo)
+	}
+	code, kind, err := c.exprAST(expr)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	return c.emitSwitchCode(lineNo, indent, code, kind)
+}
+
+func (c *Compiler) emitSwitchCode(lineNo, indent int, code, kind string) error {
 	switch kind {
 	case "string", "int", "bool":
 	default:
@@ -716,7 +804,7 @@ func (c *Compiler) emitSwitch(lineNo, indent int, expr string) error {
 }
 
 func (c *Compiler) emitCase(lineNo, indent int, expr string) error {
-	sw, idx, err := c.activeSwitch()
+	sw, _, err := c.activeSwitch()
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
@@ -726,6 +814,28 @@ func (c *Compiler) emitCase(lineNo, indent int, expr string) error {
 	code, kind, err := c.expr(expr)
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	return c.emitCaseCode(lineNo, indent, code, kind)
+}
+
+func (c *Compiler) emitCaseAST(lineNo, indent int, expr pyriteExpr) error {
+	if expr == nil {
+		return fmt.Errorf("line %d: missing case expression", lineNo)
+	}
+	code, kind, err := c.exprAST(expr)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	return c.emitCaseCode(lineNo, indent, code, kind)
+}
+
+func (c *Compiler) emitCaseCode(lineNo, indent int, code, kind string) error {
+	sw, idx, err := c.activeSwitch()
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if indent != sw.indent+4 {
+		return fmt.Errorf("line %d: case must be indented one level under switch", lineNo)
 	}
 	if !typesCompatible(sw.switchKind, kind) {
 		return fmt.Errorf("line %d: case is %s but switch is %s", lineNo, kind, sw.switchKind)
@@ -901,6 +1011,50 @@ func (c *Compiler) emitRoutine(lineNo int, call string) error {
 	return nil
 }
 
+func (c *Compiler) emitRoutineAST(lineNo int, args []pyriteExpr) error {
+	if len(args) < 1 || len(args) > 2 {
+		return fmt.Errorf("line %d: routine expects a call and optional mux", lineNo)
+	}
+	muxCode := "NULL"
+	if len(args) == 2 {
+		code, kind, err := c.exprAST(args[1])
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		if kind != "mux" {
+			return fmt.Errorf("line %d: routine mux argument must be mux, got %s", lineNo, kind)
+		}
+		muxCode = code
+	}
+	call, ok := args[0].(*pyriteCallExpr)
+	if !ok {
+		return fmt.Errorf("line %d: routine expects a function call", lineNo)
+	}
+	if callee, ok := call.Callee.(*pyriteNameExpr); ok && callee.Name == "print" {
+		if len(call.Args) != 1 {
+			return fmt.Errorf("line %d: print expects 1 argument(s)", lineNo)
+		}
+		code, kind, err := c.exprAST(call.Args[0])
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		switch kind {
+		case "int", "bool":
+			c.body.WriteString(fmt.Sprintf("    pyrite_routine_print_int(%s, %s);\n", code, muxCode))
+		case "float":
+			c.body.WriteString(fmt.Sprintf("    pyrite_routine_print_float(%s, %s);\n", code, muxCode))
+		default:
+			c.body.WriteString(fmt.Sprintf("    pyrite_routine_print_str(%s, %s);\n", code, muxCode))
+		}
+		return nil
+	}
+	name := renderPyriteExpr(call.Callee)
+	if c.functions[name] == nil {
+		return fmt.Errorf("line %d: routine currently supports print(...) and helper function calls", lineNo)
+	}
+	return c.emitRoutineFunctionCallAST(lineNo, name, call.Args, muxCode)
+}
+
 func (c *Compiler) emitRoutineFunctionCall(lineNo int, call, muxCode string) error {
 	name, rawArgs, ok := splitCall(call)
 	if !ok {
@@ -972,6 +1126,86 @@ func (c *Compiler) emitRoutineFunctionCall(lineNo int, call, muxCode string) err
 	c.body.WriteString(fmt.Sprintf("        *__routine_task_%d = (%s){.mux = %s", id, structName, muxCode))
 	for i, info := range infos {
 		c.body.WriteString(fmt.Sprintf(", .arg%d = %s", i, info.code))
+	}
+	c.body.WriteString("};\n")
+	c.body.WriteString(fmt.Sprintf("        pyrite_start_task(%s, __routine_task_%d);\n", runName, id))
+	c.body.WriteString("    }\n")
+	return nil
+}
+
+func (c *Compiler) emitRoutineFunctionCallAST(lineNo int, name string, args []pyriteExpr, muxCode string) error {
+	fn := c.functions[name]
+	if fn == nil {
+		return fmt.Errorf("line %d: unknown function %s", lineNo, name)
+	}
+	if len(args) != len(fn.params) {
+		return fmt.Errorf("line %d: %s expects %d argument(s), got %d", lineNo, name, len(fn.params), len(args))
+	}
+
+	compiled, err := c.compileExprArgsAST(args)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	for i, arg := range compiled {
+		param := fn.params[i]
+		want := fn.paramTypes[param]
+		if want == "" {
+			fn.paramTypes[param] = arg.kind
+			compiled[i].kind = arg.kind
+			continue
+		}
+		if !typesCompatible(want, arg.kind) {
+			return fmt.Errorf("line %d: %s parameter %s is %s but got %s", lineNo, name, param, want, arg.kind)
+		}
+		if want == "any" && arg.kind != "any" {
+			code, err := anyValue(arg.code, arg.kind)
+			if err != nil {
+				return fmt.Errorf("line %d: %w", lineNo, err)
+			}
+			compiled[i].code = code
+		} else if want == "list_any" && arg.kind == "list_int" {
+			compiled[i].code = fmt.Sprintf("pyrite_list_int_to_any(%s)", arg.code)
+		}
+		compiled[i].kind = want
+	}
+	if fn.returnType == "" {
+		if err := c.inferFunctionReturn(fn); err != nil {
+			return err
+		}
+	}
+
+	id := c.nextRoutineID
+	c.nextRoutineID++
+	structName := fmt.Sprintf("PyriteRoutineCall_%d", id)
+	runName := fmt.Sprintf("pyrite_routine_call_%d", id)
+
+	c.funcs.WriteString(fmt.Sprintf("typedef struct %s {\n", structName))
+	c.funcs.WriteString("    PyriteMux *mux;\n")
+	for i, arg := range compiled {
+		c.funcs.WriteString(fmt.Sprintf("    %s arg%d;\n", c.cType(arg.kind), i))
+	}
+	c.funcs.WriteString(fmt.Sprintf("} %s;\n", structName))
+	c.funcs.WriteString(fmt.Sprintf("static void *%s(void *arg) {\n", runName))
+	c.funcs.WriteString(fmt.Sprintf("    %s *task = arg;\n", structName))
+	c.funcs.WriteString("    pyrite_mux_lock(task->mux);\n")
+	c.funcs.WriteString(fmt.Sprintf("    %s(", c.functionCName(name)))
+	for i := range compiled {
+		if i > 0 {
+			c.funcs.WriteString(", ")
+		}
+		c.funcs.WriteString(fmt.Sprintf("task->arg%d", i))
+	}
+	c.funcs.WriteString(");\n")
+	c.funcs.WriteString("    pyrite_mux_unlock(task->mux);\n")
+	c.funcs.WriteString("    pyrite_defer_memory_cleanup();\n")
+	c.funcs.WriteString("    return NULL;\n")
+	c.funcs.WriteString("}\n")
+
+	c.body.WriteString(fmt.Sprintf("    %s *__routine_task_%d = pyrite_malloc(sizeof(%s));\n", structName, id, structName))
+	c.body.WriteString(fmt.Sprintf("    if (__routine_task_%d) {\n", id))
+	c.body.WriteString(fmt.Sprintf("        *__routine_task_%d = (%s){.mux = %s", id, structName, muxCode))
+	for i, arg := range compiled {
+		c.body.WriteString(fmt.Sprintf(", .arg%d = %s", i, arg.code))
 	}
 	c.body.WriteString("};\n")
 	c.body.WriteString(fmt.Sprintf("        pyrite_start_task(%s, __routine_task_%d);\n", runName, id))

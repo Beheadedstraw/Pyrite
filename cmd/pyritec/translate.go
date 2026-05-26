@@ -596,6 +596,41 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 		if err := c.emitWhileHeaderAST(base.Line, base.Indent, node.Condition); err != nil {
 			return err
 		}
+	case *pyriteForStmt:
+		if err := c.emitForHeaderAST(base.Line, base.Indent, node.Target, node.Iterable); err != nil {
+			return err
+		}
+	case *pyriteMatchStmt:
+		if err := c.emitSwitchAST(base.Line, base.Indent, node.Value); err != nil {
+			return err
+		}
+	case *pyriteCaseStmt:
+		if node.Wildcard {
+			if err := c.emitDefault(base.Line, base.Indent); err != nil {
+				return err
+			}
+		} else {
+			if err := c.emitCaseAST(base.Line, base.Indent, node.Pattern); err != nil {
+				return err
+			}
+		}
+		if node.Inline != nil {
+			if err := c.compileASTStatement(node.Inline); err != nil {
+				return err
+			}
+			return c.closeBlock(base.Line)
+		}
+	case *pyriteControlStmt:
+		switch node.Kind {
+		case "default":
+			if err := c.emitDefault(base.Line, base.Indent); err != nil {
+				return err
+			}
+		default:
+			if err := c.emitStatement(base.Line, base.Indent, base.Text); err != nil {
+				return err
+			}
+		}
 	case *pyriteVarStmt:
 		return c.emitAssignAST(base.Line, base.Text, node.Value, false)
 	case *pyriteAssignStmt:
@@ -609,7 +644,7 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 	}
 	if len(base.Children) == 0 {
 		switch stmt.(type) {
-		case *pyriteIfStmt, *pyriteWhileStmt:
+		case *pyriteIfStmt, *pyriteWhileStmt, *pyriteForStmt, *pyriteMatchStmt, *pyriteCaseStmt, *pyriteControlStmt:
 			return c.closeBlock(base.Line)
 		}
 		return nil
@@ -623,13 +658,21 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 func (c *Compiler) emitExprStmtAST(lineNo int, expr pyriteExpr) error {
 	call, ok := expr.(*pyriteCallExpr)
 	if !ok {
-		return c.emitStatement(lineNo, 0, renderPyriteExpr(expr))
+		code, _, err := c.exprAST(expr)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		c.body.WriteString(fmt.Sprintf("    %s;\n", code))
+		return nil
 	}
 	if callee, ok := call.Callee.(*pyriteNameExpr); ok && callee.Name == "print" {
 		if len(call.Args) != 1 {
 			return fmt.Errorf("line %d: print expects 1 argument(s)", lineNo)
 		}
 		return c.emitPrintExpr(lineNo, call.Args[0])
+	}
+	if callee, ok := call.Callee.(*pyriteNameExpr); ok && (callee.Name == "routine" || callee.Name == "async") {
+		return c.emitRoutineAST(lineNo, call.Args)
 	}
 	code, _, err := c.exprAST(expr)
 	if err != nil {
@@ -649,7 +692,7 @@ func (c *Compiler) compileIfAST(stmt *pyriteIfStmt, elseStmt pyriteStmt) error {
 	}
 	if elseStmt != nil {
 		elseBase := elseStmt.stmtBase()
-		if err := c.emitStatement(elseBase.Line, elseBase.Indent, elseBase.Text); err != nil {
+		if err := c.emitElseAST(elseBase.Line); err != nil {
 			return err
 		}
 		if err := c.compileASTStatements(elseBase.Children, c.mainIndent); err != nil {
@@ -661,7 +704,7 @@ func (c *Compiler) compileIfAST(stmt *pyriteIfStmt, elseStmt pyriteStmt) error {
 
 func (c *Compiler) compileTryAST(stmt *pyriteControlStmt, exceptStmt pyriteStmt) error {
 	base := stmt.stmtBase()
-	if err := c.emitStatement(base.Line, base.Indent, base.Text); err != nil {
+	if err := c.emitTryHeaderAST(base.Indent); err != nil {
 		return err
 	}
 	if err := c.compileASTStatements(base.Children, c.mainIndent); err != nil {
@@ -671,7 +714,7 @@ func (c *Compiler) compileTryAST(stmt *pyriteControlStmt, exceptStmt pyriteStmt)
 		return c.closeBlock(base.Line)
 	}
 	exceptBase := exceptStmt.stmtBase()
-	if err := c.emitStatement(exceptBase.Line, exceptBase.Indent, exceptBase.Text); err != nil {
+	if err := c.emitExceptHeaderAST(exceptBase.Line, exceptBase.Text); err != nil {
 		return err
 	}
 	if err := c.compileASTStatements(exceptBase.Children, c.mainIndent); err != nil {
