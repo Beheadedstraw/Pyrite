@@ -30,10 +30,16 @@ def emit_main_close(state: emitter.EmitState):
         state.in_main = False
 
 def emit_print(state: emitter.EmitState, line: string):
-    text: string = lexer.between_first_quotes(line)
-    state.write("    puts(\"")
-    state.write(text)
-    state.write("\");\n")
+    if line.contains("\""):
+        text: string = lexer.between_first_quotes(line)
+        state.write("    puts(\"")
+        state.write(text)
+        state.write("\");\n")
+    else:
+        value: string = line.slice(6, line.len() - 1).strip()
+        state.write("    printf(\"%ld\\n\", ")
+        state.write(value)
+        state.write(");\n")
 
 def emit_return(state: emitter.EmitState, line: string):
     value: string = lexer.after_prefix(line, "return ").strip()
@@ -41,6 +47,30 @@ def emit_return(state: emitter.EmitState, line: string):
     state.write(value)
     state.write(";\n")
     state.emitted_return = True
+
+def emit_int_decl(state: emitter.EmitState, line: string):
+    colon: int = line.find(":")
+    equals: int = line.find("=")
+    if colon >= 0:
+        if equals >= 0:
+            name: string = line.slice(0, colon).strip()
+            value: string = line.slice(equals + 1, line.len()).strip()
+            state.write("    long ")
+            state.write(name)
+            state.write(" = ")
+            state.write(value)
+            state.write(";\n")
+
+def emit_assignment(state: emitter.EmitState, line: string):
+    equals: int = line.find("=")
+    if equals >= 0:
+        name: string = line.slice(0, equals).strip()
+        value: string = line.slice(equals + 1, line.len()).strip()
+        state.write("    ")
+        state.write(name)
+        state.write(" = ")
+        state.write(value)
+        state.write(";\n")
 
 def compile_source(source: string):
     cursor: lexer.SourceCursor = lexer.SourceCursor(source)
@@ -58,6 +88,12 @@ def compile_source(source: string):
                 else:
                     if line.startswith("return "):
                         emit_return(state, line)
+                    else:
+                        if line.contains(": int ="):
+                            emit_int_decl(state, line)
+                        else:
+                            if line.contains("="):
+                                emit_assignment(state, line)
     emit_main_close(state)
     if not state.saw_main:
         return ""
