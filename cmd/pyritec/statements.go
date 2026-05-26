@@ -1553,11 +1553,11 @@ func (c *Compiler) predeclareFunctionLocals(fn *functionDef) error {
 func (c *Compiler) predeclareStmtLocals(stmt pyriteStmt, declared map[string]string) error {
 	switch node := stmt.(type) {
 	case *pyriteVarStmt:
-		if err := c.predeclareLocal(node.Line, node.Name, node.Type, node.stmtBase().Text, declared); err != nil {
+		if err := c.predeclareLocal(node.Line, node.Name, node.Type, node.Value, declared); err != nil {
 			return err
 		}
 	case *pyriteAssignStmt:
-		if err := c.predeclareLocal(node.Line, node.Target, "", node.stmtBase().Text, declared); err != nil {
+		if err := c.predeclareLocal(node.Line, node.Target, "", node.Value, declared); err != nil {
 			return err
 		}
 	case *pyriteIfStmt:
@@ -1587,7 +1587,7 @@ func (c *Compiler) predeclareStmtLocals(stmt pyriteStmt, declared map[string]str
 	return nil
 }
 
-func (c *Compiler) predeclareLocal(lineNo int, name, annotated, source string, declared map[string]string) error {
+func (c *Compiler) predeclareLocal(lineNo int, name, annotated string, value pyriteExpr, declared map[string]string) error {
 	if name == "" || strings.Contains(name, ".") {
 		return nil
 	}
@@ -1602,15 +1602,10 @@ func (c *Compiler) predeclareLocal(lineNo int, name, annotated, source string, d
 		}
 		kind = normalized
 	} else {
-		parts := strings.SplitN(source, "=", 2)
-		if len(parts) != 2 {
+		if value == nil {
 			return nil
 		}
-		value := strings.TrimSpace(parts[1])
-		if strings.HasSuffix(value, ").defer()") {
-			value = strings.TrimSuffix(value, ".defer()")
-		}
-		_, inferred, err := c.expr(value)
+		_, inferred, err := c.exprAST(value)
 		if err != nil {
 			return fmt.Errorf("line %d: %w", lineNo, err)
 		}

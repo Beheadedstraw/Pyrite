@@ -353,25 +353,57 @@ func (c *Compiler) inferClassFields() error {
 				}
 				c.types[param] = fn.paramTypes[param]
 			}
-			for _, line := range fn.body {
-				if !strings.HasPrefix(line.trimmed, "self.") || !strings.Contains(line.trimmed, "=") {
-					continue
+			for _, stmt := range fn.astBody {
+				if err := c.inferClassFieldsFromStmt(cls, stmt); err != nil {
+					return err
 				}
-				parts := strings.SplitN(line.trimmed, "=", 2)
-				field := strings.TrimSpace(strings.TrimPrefix(parts[0], "self."))
-				if field == "" || strings.ContainsAny(field, ". \t") {
-					return fmt.Errorf("line %d: invalid class field assignment", line.lineNo)
-				}
-				_, kind, err := c.expr(parts[1])
-				if err != nil {
-					return fmt.Errorf("line %d: %w", line.lineNo, err)
-				}
-				if existing := cls.fields[field]; existing != "" && !typesCompatible(existing, kind) {
-					return fmt.Errorf("line %d: class %s field %s is both %s and %s", line.lineNo, cls.name, field, existing, kind)
-				}
-				cls.fields[field] = kind
-				c.types["self."+field] = kind
 			}
+		}
+	}
+	return nil
+}
+
+func (c *Compiler) inferClassFieldsFromStmt(cls *classDef, stmt pyriteStmt) error {
+	switch node := stmt.(type) {
+	case *pyriteAssignStmt:
+		if !strings.HasPrefix(node.Target, "self.") {
+			break
+		}
+		field := strings.TrimSpace(strings.TrimPrefix(node.Target, "self."))
+		if field == "" || strings.ContainsAny(field, ". \t") {
+			return fmt.Errorf("line %d: invalid class field assignment", node.Line)
+		}
+		_, kind, err := c.exprAST(node.Value)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", node.Line, err)
+		}
+		if existing := cls.fields[field]; existing != "" && !typesCompatible(existing, kind) {
+			return fmt.Errorf("line %d: class %s field %s is both %s and %s", node.Line, cls.name, field, existing, kind)
+		}
+		cls.fields[field] = kind
+		c.types["self."+field] = kind
+	case *pyriteIfStmt:
+		if node.Inline != nil {
+			if err := c.inferClassFieldsFromStmt(cls, node.Inline); err != nil {
+				return err
+			}
+		}
+	case *pyriteWhileStmt:
+		if node.Inline != nil {
+			if err := c.inferClassFieldsFromStmt(cls, node.Inline); err != nil {
+				return err
+			}
+		}
+	case *pyriteCaseStmt:
+		if node.Inline != nil {
+			if err := c.inferClassFieldsFromStmt(cls, node.Inline); err != nil {
+				return err
+			}
+		}
+	}
+	for _, child := range stmt.stmtBase().Children {
+		if err := c.inferClassFieldsFromStmt(cls, child); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -898,6 +930,9 @@ func (c *Compiler) writeConstructorParams(buf *bytes.Buffer, init *functionDef) 
 
 func (c *Compiler) inferFunctionReturn(fn *functionDef) error {
 	oldTypes := c.types
+	defer func() {
+		c.types = oldTypes
+	}()
 	c.types = copyStringMap(c.globalTypes)
 	for _, param := range fn.params {
 		if fn.paramTypes[param] == "" {
@@ -906,112 +941,95 @@ func (c *Compiler) inferFunctionReturn(fn *functionDef) error {
 		c.types[param] = fn.paramTypes[param]
 	}
 	fn.returnType = "void"
-	for _, line := range fn.body {
-		if strings.HasPrefix(line.trimmed, "for ") && strings.HasSuffix(line.trimmed, ":") {
-			m := regexp.MustCompile(`^for ([A-Za-z_][A-Za-z0-9_]*) in ([A-Za-z_][A-Za-z0-9_]*):$`).FindStringSubmatch(line.trimmed)
-			if m != nil {
-				switch c.types[m[2]] {
-				case "list_int":
-					c.types[m[1]] = "int"
-				case "list_any":
-					c.types[m[1]] = "any"
-				}
-			}
-		}
-		if strings.HasPrefix(line.trimmed, "foreach(") && strings.HasSuffix(line.trimmed, "):") {
-			args := splitArgs(innerCall(strings.TrimSuffix(line.trimmed, ":"), "foreach"))
-			if len(args) >= 1 && len(args) <= 2 {
-				itemName := "item"
-				if len(args) == 2 {
-					itemName = strings.TrimSpace(args[1])
-				}
-				listName := strings.TrimSpace(args[0])
-				switch c.types[listName] {
-				case "list_int":
-					c.types[itemName] = "int"
-				case "list_any":
-					c.types[itemName] = "any"
-				}
-			}
-		}
-		if strings.Contains(line.trimmed, "=") && !strings.HasPrefix(line.trimmed, "if ") && !strings.HasPrefix(line.trimmed, "while ") {
-			parts := strings.SplitN(line.trimmed, "=", 2)
-			target, err := parseBindingTarget(parts[0])
-			if err != nil {
-				c.types = oldTypes
-				return fmt.Errorf("line %d: %w", line.lineNo, err)
-			}
-			if !strings.Contains(target.name, ".") {
-				value := strings.TrimSpace(parts[1])
-				if strings.HasSuffix(value, ").defer()") {
-					value = strings.TrimSuffix(value, ".defer()")
-				}
-				_, kind, err := c.expr(value)
-				if err != nil {
-					c.types = oldTypes
-					return fmt.Errorf("line %d: %w", line.lineNo, err)
-				}
-				if target.annotated != "" {
-					if err := checkType(line.lineNo, target.name, target.annotated, kind); err != nil {
-						c.types = oldTypes
-						return err
-					}
-					kind = target.annotated
-				}
-				c.types[target.name] = kind
-			}
-		}
-		if !strings.HasPrefix(line.trimmed, "return ") {
-			continue
-		}
-		expr := strings.TrimSpace(strings.TrimPrefix(line.trimmed, "return "))
-		if err := c.noteFunctionReturn(fn, line.lineNo, expr); err != nil {
-			c.types = oldTypes
-			return err
-		}
-	}
-	if err := c.inferInlineASTReturns(fn, fn.astBody); err != nil {
-		c.types = oldTypes
-		return err
-	}
-	c.types = oldTypes
-	return nil
-}
-
-func (c *Compiler) inferInlineASTReturns(fn *functionDef, stmts []pyriteStmt) error {
-	for _, stmt := range stmts {
-		switch node := stmt.(type) {
-		case *pyriteIfStmt:
-			if ret, ok := node.Inline.(*pyriteReturnStmt); ok {
-				if err := c.noteFunctionReturn(fn, ret.Line, returnExprText(ret)); err != nil {
-					return err
-				}
-			}
-		case *pyriteWhileStmt:
-			if ret, ok := node.Inline.(*pyriteReturnStmt); ok {
-				if err := c.noteFunctionReturn(fn, ret.Line, returnExprText(ret)); err != nil {
-					return err
-				}
-			}
-		case *pyriteCaseStmt:
-			if ret, ok := node.Inline.(*pyriteReturnStmt); ok {
-				if err := c.noteFunctionReturn(fn, ret.Line, returnExprText(ret)); err != nil {
-					return err
-				}
-			}
-		}
-		if err := c.inferInlineASTReturns(fn, stmt.stmtBase().Children); err != nil {
+	for _, stmt := range fn.astBody {
+		if err := c.inferFunctionStmt(fn, stmt); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Compiler) noteFunctionReturn(fn *functionDef, lineNo int, expr string) error {
-	if strings.TrimSpace(expr) == "" {
+func (c *Compiler) inferFunctionStmt(fn *functionDef, stmt pyriteStmt) error {
+	switch node := stmt.(type) {
+	case *pyriteVarStmt:
+		return c.noteFunctionBinding(node.Line, node.Name, node.Type, node.Value)
+	case *pyriteAssignStmt:
+		return c.noteFunctionBinding(node.Line, node.Target, "", node.Value)
+	case *pyriteReturnStmt:
+		return c.noteFunctionReturnAST(fn, node.Line, node.Value)
+	case *pyriteForStmt:
+		if err := c.noteLoopBinding(node.Line, node.Target, node.Iterable); err != nil {
+			return err
+		}
+	case *pyriteIfStmt:
+		if node.Inline != nil {
+			if err := c.inferFunctionStmt(fn, node.Inline); err != nil {
+				return err
+			}
+		}
+	case *pyriteWhileStmt:
+		if node.Inline != nil {
+			if err := c.inferFunctionStmt(fn, node.Inline); err != nil {
+				return err
+			}
+		}
+	case *pyriteCaseStmt:
+		if node.Inline != nil {
+			if err := c.inferFunctionStmt(fn, node.Inline); err != nil {
+				return err
+			}
+		}
+	}
+	for _, child := range stmt.stmtBase().Children {
+		if err := c.inferFunctionStmt(fn, child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Compiler) noteFunctionBinding(lineNo int, name, annotated string, value pyriteExpr) error {
+	if name == "" || strings.Contains(name, ".") {
 		return nil
 	}
-	_, kind, err := c.expr(expr)
+	_, kind, err := c.exprAST(value)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if annotated != "" {
+		normalized, err := normalizeType(annotated)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		if err := checkType(lineNo, name, normalized, kind); err != nil {
+			return err
+		}
+		kind = normalized
+	}
+	c.types[name] = kind
+	return nil
+}
+
+func (c *Compiler) noteLoopBinding(lineNo int, name string, iterable pyriteExpr) error {
+	if !isIdentifier(name) {
+		return nil
+	}
+	_, kind, err := c.exprAST(iterable)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if !isListKind(kind) {
+		return fmt.Errorf("line %d: foreach expects a list, got %s", lineNo, kind)
+	}
+	c.types[name] = listElementKind(kind)
+	return nil
+}
+
+func (c *Compiler) noteFunctionReturnAST(fn *functionDef, lineNo int, expr pyriteExpr) error {
+	if expr == nil {
+		return nil
+	}
+	_, kind, err := c.exprAST(expr)
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
@@ -1021,10 +1039,6 @@ func (c *Compiler) noteFunctionReturn(fn *functionDef, lineNo int, expr string) 
 		return fmt.Errorf("line %d: function %s returns both %s and %s", lineNo, fn.name, fn.returnType, kind)
 	}
 	return nil
-}
-
-func returnExprText(stmt *pyriteReturnStmt) string {
-	return strings.TrimSpace(strings.TrimPrefix(stmt.Text, "return"))
 }
 
 func copyStringMap(src map[string]string) map[string]string {
