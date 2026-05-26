@@ -24,7 +24,8 @@ print(f"{score} testing int plus string")
 ```
 
 Current interpolation supports simple variables, member expressions, function
-call results, bools, floats, strings, and integer lists.
+call results, bools, floats, strings, bytes, integer lists, and `list[any]`
+values.
 
 Format specifiers such as `{value:04}` and conversion flags such as `{value!r}`
 are intentionally out of scope for the first version.
@@ -85,9 +86,39 @@ Current support:
 - `value.ends_with(suffix) -> bool`
 - `value.replace(old, replacement) -> string`
 - `value.slice(start, end) -> string`
+- `value.get(index) -> string`
+- `value.at(index) -> string`
+- `value[index] -> string`
+- `value.byte(index) -> int`
 
 The same operations are also available as `strings.strip(value)`,
 `strings.upper(value)`, `strings.replace(value, old, replacement)`, and so on.
+
+## Bytes
+
+Binary data uses `bytes`:
+
+```pyrite
+def main():
+    data: bytes = b"AR\x00\xff"
+    more: bytes = bytes([1, 2, 255])
+    print(data.len())
+    print(data.get(3))
+    print((data + more).slice(0, 2).to_string())
+```
+
+Current support:
+
+- `b"..."` literals
+- `bytes([1, 2, 255])`
+- `left + right`
+- `value[index]`
+- `value.len() -> int`
+- `value.get(index) -> int`
+- `value.at(index) -> int`
+- `value.slice(start, end) -> bytes`
+- `value.push(byte_value) -> bytes`
+- `value.to_string() -> string`
 
 ## Integers And Floats
 
@@ -195,4 +226,9 @@ seconds and returns `0`.
 ## Common Built-ins
 
 - `print(value)`
-- `len(value) -> int` is planned for strings, lists, and dictionaries.
+- `chr(value: int) -> string`
+- `bytes(values: list[int]) -> bytes`
+- `dict() -> dict`
+- `set() -> set`
+- `string_builder() -> string_builder`
+- `bytes_builder() -> bytes_builder`

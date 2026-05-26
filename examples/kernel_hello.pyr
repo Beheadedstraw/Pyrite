@@ -1,0 +1,10 @@
+import kernel
+
+def main():
+    kernel.cls()
+    kernel.println("hello from pyrite kernel mode")
+    name = kernel.input("name> ")
+    kernel.print("hello, ")
+    kernel.println(name)
+    print("builtin print still works")
+    return 0

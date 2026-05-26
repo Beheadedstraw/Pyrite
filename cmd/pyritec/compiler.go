@@ -13,6 +13,7 @@ type Compiler struct {
 	outPath     string
 	tmpC        string
 	traceDefers bool
+	target      string
 
 	imports       map[string]bool
 	loadedModules map[string]bool
@@ -22,6 +23,7 @@ type Compiler struct {
 	functions     map[string]*functionDef
 	functionOrder []string
 	classes       map[string]*classDef
+	enums         map[string]map[string]int
 	defers        []string
 	globals       bytes.Buffer
 	prototypes    bytes.Buffer
@@ -84,6 +86,7 @@ func NewCompiler(srcPath, outPath string) *Compiler {
 		globalTypes:   map[string]string{},
 		functions:     map[string]*functionDef{},
 		classes:       map[string]*classDef{},
+		enums:         map[string]map[string]int{},
 	}
 }
 
@@ -103,7 +106,7 @@ func (c *Compiler) Compile() error {
 	} else {
 		out.WriteString("#define PYRITE_TRACE_DEFER 0\n")
 	}
-	out.WriteString(runtimeC)
+	out.WriteString(c.runtime())
 	out.WriteString(c.globals.String())
 	out.WriteString(c.prototypes.String())
 	out.WriteString(c.funcs.String())
@@ -114,11 +117,41 @@ func (c *Compiler) Compile() error {
 	}
 	defer os.Remove(c.tmpC)
 
-	cmd := exec.Command("gcc", "-std=c11", "-Wall", "-Wextra", "-Wno-unused-function", "-O2", "-pthread", "-o", c.outPath, c.tmpC, "-lm")
+	args := c.compilerArgs()
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("link step failed: %w", err)
 	}
 	return nil
+}
+
+func (c *Compiler) runtime() string {
+	if c.target == "freestanding" {
+		return runtimeFreestandingC
+	}
+	return runtimeC
+}
+
+func (c *Compiler) compilerArgs() []string {
+	if c.target == "freestanding" {
+		return []string{
+			"gcc",
+			"-std=c11",
+			"-Wall",
+			"-Wextra",
+			"-Wno-unused-function",
+			"-O2",
+			"-ffreestanding",
+			"-fno-stack-protector",
+			"-fno-pic",
+			"-mno-red-zone",
+			"-c",
+			"-o",
+			c.outPath,
+			c.tmpC,
+		}
+	}
+	return []string{"gcc", "-std=c11", "-Wall", "-Wextra", "-Wno-unused-function", "-O2", "-pthread", "-o", c.outPath, c.tmpC, "-lm"}
 }

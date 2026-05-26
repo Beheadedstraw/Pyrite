@@ -10,12 +10,13 @@ small compiled runtime.
 
 - [Language Basics](language.md): imports, variables, typing, constants, globals
 - [Native Bindings](native-bindings.md): writing Pyrite modules backed by runtime C
+- [Freestanding Kernel Target](freestanding.md): compiling Pyrite into a kernel object and Artemis program image
 - [Functions And Control Flow](functions-control-flow.md): `def`, returns,
   `if`, `while`, loops, `try` / `except`
 - [Concurrency And Routines](concurrency.md): `routine(...)`, `mux()`, locking
 - [Files](files.md): file handles, reads, writes, `.defer()`, cleanup tracing
 - [Network Sockets](networking.md): TCP/UDP sockets and pure Pyrite HTTP helpers
-- [Collections](collections.md): lists, dictionaries, inheritance
+- [Collections](collections.md): lists, bytes, dictionaries, sets, builders, inheritance
 - [Classes](classes.md): first-version class declarations, fields, methods
 - [Data Formats](data-formats.md): JSON and XML helpers
 - [Vector Math](vector-math.md): pure Pyrite vector helpers
@@ -25,7 +26,9 @@ small compiled runtime.
 ## Compiler Subset
 
 The current compiler recognizes core syntax, module loading, native bindings,
-helper functions, routines, resources, lists, object-shaped dictionary defaults,
-module functions, and module globals. Standard APIs such as files, sockets,
-regex, random, routine locks, JSON, and XML now enter through `.pyr` modules.
-Unsupported syntax fails at compile time instead of being silently ignored.
+helper functions, routines, resources, enums, `match`, typed lists/dicts, bytes,
+dictionaries, sets, builders, object-shaped defaults, module functions, and
+module globals.
+Standard APIs such as files, sockets, regex, random, routine locks, JSON, and
+XML now enter through `.pyr` modules. Unsupported syntax fails at compile time
+instead of being silently ignored.

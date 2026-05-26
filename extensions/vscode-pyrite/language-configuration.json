@@ -22,8 +22,8 @@
     ["'", "'"]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(class|def|if|else|while|for|foreach|try|except)\\b.*:\\s*(#.*)?$",
-    "decreaseIndentPattern": "^\\s*(else|except)\\b.*:\\s*(#.*)?$"
+    "increaseIndentPattern": "^\\s*(class|enum|def|if|else|while|for|foreach|switch|match|case|default|try|except)\\b.*:\\s*(#.*)?$",
+    "decreaseIndentPattern": "^\\s*(else|except|case|default)\\b.*:\\s*(#.*)?$"
   },
   "folding": {
     "markers": {

@@ -1,0 +1,32 @@
+# Freestanding kernel bindings.
+#
+# These names intentionally stay Python-shaped: lower-case, snake_case, and
+# small verbs. The C runtime provides weak hooks that a real kernel can replace.
+
+native def print(value: string) -> int = pyrite_kernel_print
+native def println(value: string) -> int = pyrite_kernel_println
+native def cls() -> int = pyrite_kernel_cls
+native def input(prompt: string) -> string = pyrite_kernel_input
+native def color(value: int) -> int = pyrite_kernel_color
+native def panic(message: string) -> int = pyrite_kernel_panic
+native def halt() -> int = pyrite_kernel_halt
+native def write_port(port: int, value: int) -> int = pyrite_kernel_write_port
+native def read_port(port: int) -> int = pyrite_kernel_read_port
+native def outb(port: int, value: int) -> int = pyrite_kernel_outb
+native def inb(port: int) -> int = pyrite_kernel_inb
+native def outw(port: int, value: int) -> int = pyrite_kernel_outw
+native def inw(port: int) -> int = pyrite_kernel_inw
+native def read64(address: int) -> int = pyrite_kernel_read64
+native def write64(address: int, value: int) -> int = pyrite_kernel_write64
+native def read8(address: int) -> int = pyrite_kernel_read8
+native def write8(address: int, value: int) -> int = pyrite_kernel_write8
+native def read_cr3() -> int = pyrite_kernel_read_cr3
+native def write_cr3(value: int) -> int = pyrite_kernel_write_cr3
+native def flush_page(address: int) -> int = pyrite_kernel_flush_page
+native def shr(value: int, bits: int) -> int = pyrite_kernel_shr
+native def shl(value: int, bits: int) -> int = pyrite_kernel_shl
+native def ptr(value: string) -> int = pyrite_kernel_ptr
+native def string_at(address: int) -> string = pyrite_kernel_string_at
+native def string_byte(value: string, index: int) -> int = pyrite_kernel_string_byte
+native def setup_user_mode(kernel_cr3: int) -> int = artemis_setup_user_mode
+native def enter_user(space: int, entry: int, stack: int) -> int = artemis_enter_user

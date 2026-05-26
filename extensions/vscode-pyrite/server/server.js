@@ -34,13 +34,16 @@ connection.onCompletion((params) => {
   const text = document.getText();
   const offset = document.offsetAt(params.position);
   const linePrefix = text.slice(lineStartOffset(text, offset), offset);
-  const dotMatch = linePrefix.match(/([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*|\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'|[0-9]+(?:\.[0-9]+)?)\.$/);
+  const dotMatch = linePrefix.match(/([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]+\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]+\])?)*|\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'|[0-9]+(?:\.[0-9]+)?)\.$/);
   const index = buildDocumentIndex(text);
 
   if (dotMatch) {
     const receiver = dotMatch[1];
     if (STDLIB[receiver]) {
       return moduleCompletions(receiver);
+    }
+    if (index.enums.has(receiver)) {
+      return enumMemberCompletions(receiver, index);
     }
     const receiverType = typeOfExpression(receiver, index);
     return memberCompletions(receiverType, index);
@@ -147,7 +150,10 @@ const STDLIB = {
     ["startswith", "startswith(value: string, prefix: string) -> bool"],
     ["endswith", "endswith(value: string, suffix: string) -> bool"],
     ["replace", "replace(value: string, old: string, replacement: string) -> string"],
-    ["slice", "slice(value: string, start: int, end: int) -> string"]
+    ["slice", "slice(value: string, start: int, end: int) -> string"],
+    ["get", "get(value: string, index: int) -> string"],
+    ["at", "at(value: string, index: int) -> string"],
+    ["byte", "byte(value: string, index: int) -> int"]
   ],
   ints: [
     ["abs", "abs(value: int) -> int"],
@@ -205,17 +211,103 @@ const STDLIB = {
     ["dot3", "dot3(a: list[int], b: list[int]) -> int"],
     ["cross3", "cross3(a: list[int], b: list[int]) -> list[int]"],
     ["length_sq3", "length_sq3(v: list[int]) -> int"]
+  ],
+  kernel: [
+    ["print", "print(value: string) -> int"],
+    ["println", "println(value: string) -> int"],
+    ["cls", "cls() -> int"],
+    ["input", "input(prompt: string) -> string"],
+    ["color", "color(value: int) -> int"],
+    ["panic", "panic(message: string) -> int"],
+    ["halt", "halt() -> int"],
+    ["write_port", "write_port(port: int, value: int) -> int"],
+    ["read_port", "read_port(port: int) -> int"],
+    ["outb", "outb(port: int, value: int) -> int"],
+    ["inb", "inb(port: int) -> int"],
+    ["outw", "outw(port: int, value: int) -> int"],
+    ["inw", "inw(port: int) -> int"],
+    ["read64", "read64(address: int) -> int"],
+    ["write64", "write64(address: int, value: int) -> int"],
+    ["read8", "read8(address: int) -> int"],
+    ["write8", "write8(address: int, value: int) -> int"],
+    ["read_cr3", "read_cr3() -> int"],
+    ["write_cr3", "write_cr3(value: int) -> int"],
+    ["flush_page", "flush_page(address: int) -> int"],
+    ["shr", "shr(value: int, bits: int) -> int"],
+    ["shl", "shl(value: int, bits: int) -> int"],
+    ["ptr", "ptr(value: string) -> int"],
+    ["string_at", "string_at(address: int) -> string"],
+    ["string_byte", "string_byte(value: string, index: int) -> int"],
+    ["setup_user_mode", "setup_user_mode(kernel_cr3: int) -> int"],
+    ["enter_user", "enter_user(space: int, entry: int, stack: int) -> int"]
   ]
 };
 
+const STRING_METHODS = STDLIB.strings.map(([label, detail]) => {
+  if (label === "get" || label === "at") return [label, `${label}(index: int) -> string`];
+  if (label === "byte") return [label, "byte(index: int) -> int"];
+  return [label, detail.replace(/^[^(]+\((?:value: string,\s*)?/, `${label}(`)];
+});
+
+const BYTES_METHODS = [
+  ["len", "len() -> int"],
+  ["get", "get(index: int) -> int"],
+  ["at", "at(index: int) -> int"],
+  ["slice", "slice(start: int, end: int) -> bytes"],
+  ["push", "push(value: int) -> bytes"],
+  ["to_string", "to_string() -> string"]
+];
+
+const LIST_METHODS = [
+  ["len", "len() -> int"],
+  ["get", "get(index: int) -> item"],
+  ["at", "at(index: int) -> item"],
+  ["set", "set(index: int, value) -> list"],
+  ["push", "push(value) -> list"],
+  ["pop", "pop() -> list"],
+  ["peek", "peek() -> item"]
+];
+
+const DICT_METHODS = [
+  ["len", "len() -> int"],
+  ["has", "has(key: string) -> bool"],
+  ["get", "get(key: string) -> value"],
+  ["get_string", "get_string(key: string) -> string"],
+  ["get_int", "get_int(key: string) -> int"],
+  ["set", "set(key: string, value) -> dict"],
+  ["remove", "remove(key: string) -> dict"]
+];
+
+const SET_METHODS = [
+  ["len", "len() -> int"],
+  ["has", "has(value: string) -> bool"],
+  ["add", "add(value: string) -> set"],
+  ["remove", "remove(value: string) -> set"]
+];
+
+const STRING_BUILDER_METHODS = [
+  ["write", "write(value: string) -> string_builder"],
+  ["string", "string() -> string"],
+  ["to_string", "to_string() -> string"],
+  ["len", "len() -> int"]
+];
+
+const BYTES_BUILDER_METHODS = [
+  ["write", "write(value: bytes) -> bytes_builder"],
+  ["push", "push(value: int) -> bytes_builder"],
+  ["bytes", "bytes() -> bytes"],
+  ["to_bytes", "to_bytes() -> bytes"],
+  ["len", "len() -> int"]
+];
+
 function keywordCompletions() {
-  return ["import", "global", "const", "class", "def", "if", "else", "while", "for", "foreach", "switch", "case", "default", "try", "except", "raise", "return", "async", "True", "False"].map((label) =>
+  return ["import", "global", "const", "class", "enum", "def", "if", "else", "while", "for", "foreach", "switch", "match", "case", "default", "try", "except", "raise", "return", "async", "True", "False"].map((label) =>
     completion(label, CompletionItemKind.Keyword, "Pyrite keyword")
   );
 }
 
 function typeCompletions() {
-  return ["int", "float", "string", "str", "bool", "any", "list[int]", "list[any]", "dict", "file", "socket", "listener", "mux"].map((label) =>
+  return ["int", "float", "string", "str", "bytes", "bool", "any", "list[int]", "list[any]", "list[T]", "dict", "dict[T]", "set", "string_builder", "bytes_builder", "file", "socket", "listener", "mux"].map((label) =>
     completion(label, CompletionItemKind.TypeParameter, "Pyrite type")
   );
 }
@@ -225,7 +317,12 @@ function builtinCompletions() {
     ["print", "print(value)"],
     ["async", "async(helper(args))"],
     ["routine", "routine(call, optional_mux)"],
-    ["mux", "mux() -> mux"]
+    ["mux", "mux() -> mux"],
+    ["bytes", "bytes(values: list[int]) -> bytes"],
+    ["dict", "dict() -> dict"],
+    ["set", "set() -> set"],
+    ["string_builder", "string_builder() -> string_builder"],
+    ["bytes_builder", "bytes_builder() -> bytes_builder"]
   ].map(([label, detail]) => completion(label, CompletionItemKind.Function, detail));
 }
 
@@ -245,18 +342,23 @@ function moduleCompletions(moduleName) {
   }));
 }
 
+function enumMemberCompletions(enumName, index) {
+  const enumInfo = index.enums.get(enumName);
+  if (!enumInfo) return [];
+  return Array.from(enumInfo.members).map((label) => completion(label, CompletionItemKind.EnumMember, `${enumName}.${label}`));
+}
+
 function memberCompletions(typeName, index) {
   if (!typeName) return [];
-  if (typeName === "string") return methodCompletions(STDLIB.strings);
+  if (typeName === "string") return methodCompletions(STRING_METHODS);
+  if (typeName === "bytes") return methodCompletions(BYTES_METHODS);
   if (typeName === "int") return methodCompletions(STDLIB.ints);
   if (typeName === "float") return methodCompletions(STDLIB.floats);
-  if (typeName === "list[int]" || typeName === "list[any]") {
-    return [
-      completion("len", CompletionItemKind.Method, "planned list length helper"),
-      completion("append", CompletionItemKind.Method, "planned list append helper"),
-      completion("pop", CompletionItemKind.Method, "planned list pop helper")
-    ];
-  }
+  if (isListType(typeName)) return methodCompletions(LIST_METHODS);
+  if (isDictType(typeName)) return methodCompletions(DICT_METHODS);
+  if (typeName === "set") return methodCompletions(SET_METHODS);
+  if (typeName === "string_builder") return methodCompletions(STRING_BUILDER_METHODS);
+  if (typeName === "bytes_builder") return methodCompletions(BYTES_BUILDER_METHODS);
   if (typeName.startsWith("class:")) {
     const className = typeName.slice("class:".length);
     const classInfo = index.classes.get(className);
@@ -286,9 +388,11 @@ function snippetCompletions() {
   return [
     ["def main", "def main():\n    $1\n    return 0", "main function"],
     ["class", "class ${1:Name}:\n    def __init__(self, ${2:value: int}):\n        self.${3:value} = ${4:value}", "class declaration"],
+    ["enum", "enum ${1:Name}:\n    ${2:ITEM}\n    ${3:OTHER} = ${4:10}", "enum declaration"],
     ["if", "if ${1:condition}:\n    $0", "if block"],
     ["while", "while ${1:condition}:\n    $0", "while loop"],
     ["switch", "switch ${1:value}:\n    case ${2:\"value\"}:\n        $3\n    default:\n        $0", "switch/case block"],
+    ["match", "match ${1:value}:\n    case ${2:TokenKind.IDENT}:\n        $3\n    case _:\n        $0", "match/case block"],
     ["try", "try:\n    $1\nexcept ${2:err}:\n    print(${2:err})", "try/except block"]
   ].map(([label, insertText, detail]) => ({
     label,
@@ -307,6 +411,12 @@ function documentSymbolCompletions(index) {
   for (const label of index.classes.keys()) {
     items.push(completion(label, CompletionItemKind.Class, "local class"));
   }
+  for (const [enumName, enumInfo] of index.enums.entries()) {
+    items.push(completion(enumName, CompletionItemKind.Enum, "local enum"));
+    for (const member of enumInfo.members) {
+      items.push(completion(`${enumName}.${member}`, CompletionItemKind.EnumMember, "enum member"));
+    }
+  }
   for (const [label, typeName] of index.variables.entries()) {
     items.push(completion(label, CompletionItemKind.Variable, typeName ? `local variable: ${typeName}` : "local variable"));
   }
@@ -322,12 +432,15 @@ function buildDocumentIndex(text) {
   const index = {
     variables: new Map(),
     functions: new Set(),
-    classes: new Map()
+    classes: new Map(),
+    enums: new Map()
   };
 
   const lines = text.split(/\r?\n/);
   let currentClass = null;
   let currentClassIndent = -1;
+  let currentEnum = null;
+  let currentEnumIndent = -1;
   let currentMethodParams = new Map();
 
   for (const line of lines) {
@@ -340,12 +453,29 @@ function buildDocumentIndex(text) {
       currentClassIndent = -1;
       currentMethodParams = new Map();
     }
+    if (currentEnum && indent <= currentEnumIndent) {
+      currentEnum = null;
+      currentEnumIndent = -1;
+    }
+
+    if (currentEnum && indent > currentEnumIndent) {
+      const enumMember = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*[0-9]+)?$/);
+      if (enumMember) currentEnum.members.add(enumMember[1]);
+      continue;
+    }
 
     const classMatch = trimmed.match(/^class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:/);
     if (classMatch) {
       currentClass = ensureClass(index, classMatch[1]);
       currentClassIndent = indent;
       currentMethodParams = new Map();
+      continue;
+    }
+
+    const enumMatch = trimmed.match(/^enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*:/);
+    if (enumMatch) {
+      currentEnum = ensureEnum(index, enumMatch[1]);
+      currentEnumIndent = indent;
       continue;
     }
 
@@ -370,7 +500,7 @@ function buildDocumentIndex(text) {
       continue;
     }
 
-    const assign = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=\s*(.+)$/);
+    const assign = trimmed.match(/^(?:const\s+|global\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=\s*(.+)$/);
     if (assign) {
       const name = assign[1];
       const annotation = normalizeType(assign[2]);
@@ -393,6 +523,16 @@ function ensureClass(index, name) {
   return index.classes.get(name);
 }
 
+function ensureEnum(index, name) {
+  if (!index.enums.has(name)) {
+    index.enums.set(name, {
+      name,
+      members: new Set()
+    });
+  }
+  return index.enums.get(name);
+}
+
 function parseParams(rawParams) {
   const params = new Map();
   for (const raw of splitArgs(rawParams)) {
@@ -409,21 +549,39 @@ function parseParams(rawParams) {
 function inferType(expr, index, params = new Map()) {
   const value = expr.trim();
   if (!value) return undefined;
+  if (/^b\"/.test(value)) return "bytes";
   if (/^f?\"/.test(value) || /^'/.test(value)) return "string";
   if (/^(True|False|true|false)\b/.test(value)) return "bool";
   if (/^[0-9]+\.[0-9]+$/.test(value)) return "float";
   if (/^[0-9]+$/.test(value)) return "int";
+  if (isEnumMember(value, index)) return "int";
   if (/^\[/.test(value)) {
-    return value.includes("\"") || value.includes("'") || value.includes(".") || /\b(True|False|true|false)\b/.test(value) ? "list[any]" : "list[int]";
+    const items = splitArgs(value.replace(/^\[/, "").replace(/\]$/, ""));
+    if (!items.length) return "list[any]";
+    const itemTypes = items.map((item) => inferType(item, index, params)).filter(Boolean);
+    if (itemTypes.length === items.length && itemTypes.every((kind) => kind === "int")) return "list[int]";
+    if (itemTypes.length === items.length && itemTypes.every((kind) => kind === itemTypes[0])) return `list[${displayType(itemTypes[0])}]`;
+    return "list[any]";
   }
   const ctor = value.match(/^([A-Z][A-Za-z0-9_]*)\s*\(/);
   if (ctor && index.classes.has(ctor[1])) return `class:${ctor[1]}`;
+  if (/^dict\s*\(/.test(value)) return "dict";
+  if (/^set\s*\(/.test(value)) return "set";
+  if (/^string_builder\s*\(/.test(value)) return "string_builder";
+  if (/^bytes_builder\s*\(/.test(value)) return "bytes_builder";
   const call = value.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?\s*\(/);
   if (call) return inferCallType(call[1], call[2]);
   return typeOfExpression(value, index, params);
 }
 
 function inferCallType(base, member) {
+  if (!member) {
+    if (base === "bytes") return "bytes";
+    if (base === "dict") return "dict";
+    if (base === "set") return "set";
+    if (base === "string_builder") return "string_builder";
+    if (base === "bytes_builder") return "bytes_builder";
+  }
   const signatures = member ? STDLIB[base] : undefined;
   if (!signatures || !member) return undefined;
   const signature = signatures.find(([label]) => label === member);
@@ -435,16 +593,27 @@ function inferCallType(base, member) {
 function typeOfExpression(expr, index, params = new Map()) {
   const value = expr.trim();
   if (!value) return undefined;
+  if (/^b\"/.test(value)) return "bytes";
   if (/^f?\"/.test(value) || /^'/.test(value)) return "string";
   if (/^[0-9]+\.[0-9]+$/.test(value)) return "float";
   if (/^[0-9]+$/.test(value)) return "int";
+  if (isEnumMember(value, index)) return "int";
   if (params.has(value)) return params.get(value);
   if (index.variables.has(value)) return index.variables.get(value);
 
-  const parts = value.split(".");
+  const indexMatch = splitIndexedExpression(value);
+  if (indexMatch) {
+    const baseType = typeOfExpression(indexMatch.base, index, params);
+    if (baseType === "string") return "string";
+    if (baseType === "bytes") return "int";
+    if (isListType(baseType)) return listElementType(baseType);
+  }
+
+  const parts = splitMemberPath(value);
   if (parts.length > 1) {
     let typeName = typeOfExpression(parts[0], index, params);
     for (const part of parts.slice(1)) {
+      if (isEnumMember(`${parts[0]}.${part}`, index)) return "int";
       if (!typeName || !typeName.startsWith("class:")) return undefined;
       const classInfo = index.classes.get(typeName.slice("class:".length));
       if (!classInfo) return undefined;
@@ -458,18 +627,102 @@ function typeOfExpression(expr, index, params = new Map()) {
 
 function normalizeType(typeName) {
   if (!typeName) return undefined;
-  const cleaned = typeName.replace(/\s+/g, "").toLowerCase();
+  const raw = typeName.replace(/\s+/g, "");
+  const cleaned = raw.toLowerCase();
+  const listMatch = raw.match(/^list\[([A-Za-z_][A-Za-z0-9_]*)\]$/i);
+  if (listMatch) {
+    const inner = normalizeType(listMatch[1]);
+    return `list[${displayType(inner)}]`;
+  }
+  const dictMatch = raw.match(/^dict\[([A-Za-z_][A-Za-z0-9_]*)\]$/i);
+  if (dictMatch) {
+    const inner = normalizeType(dictMatch[1]);
+    return `dict[${displayType(inner)}]`;
+  }
   const aliases = {
     integer: "int",
     double: "float",
     str: "string",
+    bytearray: "bytes",
     boolean: "bool",
     list: "list[int]",
     list_int: "list[int]",
     list_any: "list[any]",
-    object: "dict"
+    object: "object"
   };
-  return aliases[cleaned] || cleaned;
+  if (aliases[cleaned]) return aliases[cleaned];
+  if (/^[A-Z][A-Za-z0-9_]*$/.test(raw)) return `class:${raw}`;
+  return cleaned;
+}
+
+function isListType(typeName) {
+  return /^list\[[^\]]+\]$/.test(typeName || "");
+}
+
+function listElementType(typeName) {
+  const match = (typeName || "").match(/^list\[([^\]]+)\]$/);
+  return match ? normalizeType(match[1]) : undefined;
+}
+
+function isDictType(typeName) {
+  return typeName === "dict" || /^dict\[[^\]]+\]$/.test(typeName || "");
+}
+
+function displayType(typeName) {
+  if (!typeName) return "any";
+  if (typeName.startsWith("class:")) return typeName.slice("class:".length);
+  return typeName;
+}
+
+function isEnumMember(value, index) {
+  const match = value.match(/^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (!match) return false;
+  const enumInfo = index.enums.get(match[1]);
+  return !!enumInfo && enumInfo.members.has(match[2]);
+}
+
+function splitIndexedExpression(value) {
+  if (!value.endsWith("]")) return undefined;
+  let depth = 0;
+  let quote = "";
+  for (let i = value.length - 1; i >= 0; i--) {
+    const ch = value[i];
+    if ((ch === "\"" || ch === "'") && value[i - 1] !== "\\") {
+      quote = quote === ch ? "" : quote || ch;
+    }
+    if (quote) continue;
+    if (ch === "]") depth++;
+    if (ch === "[") {
+      depth--;
+      if (depth === 0) return { base: value.slice(0, i).trim(), index: value.slice(i + 1, -1).trim() };
+    }
+  }
+  return undefined;
+}
+
+function splitMemberPath(value) {
+  const parts = [];
+  let cur = "";
+  let depth = 0;
+  let quote = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if ((ch === "\"" || ch === "'") && value[i - 1] !== "\\") {
+      quote = quote === ch ? "" : quote || ch;
+    }
+    if (!quote) {
+      if (ch === "(" || ch === "[" || ch === "{") depth++;
+      if (ch === ")" || ch === "]" || ch === "}") depth--;
+      if (ch === "." && depth === 0) {
+        parts.push(cur.trim());
+        cur = "";
+        continue;
+      }
+    }
+    cur += ch;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
 }
 
 function splitArgs(input) {
