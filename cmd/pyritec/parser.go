@@ -98,7 +98,7 @@ func (p *pyriteParser) parseBinding(global, immutable bool) (*pyriteBindingDecl,
 	}
 	return &pyriteBindingDecl{
 		Name: name.Lexeme, Type: typ, Value: tokensText(value), ValueExpr: valueExpr, Const: immutable,
-		Global: global, Line: line, LineText: tokensText(value), LineIndent: 0,
+		Global: global, Line: line,
 	}, nil
 }
 
@@ -329,9 +329,9 @@ func (p *pyriteParser) parseStatementLine(indent int) (pyriteStmt, error) {
 
 func parsePyriteStatementTokens(tokens []pyriteToken, line, indent int) (pyriteStmt, error) {
 	if len(tokens) == 0 {
-		return &pyriteControlStmt{pyriteStmtBase: pyriteStmtBase{Line: line, Indent: indent, Tokens: tokens, Text: tokensText(tokens)}, Kind: ""}, nil
+		return &pyriteControlStmt{pyriteStmtBase: pyriteStmtBase{Line: line, Indent: indent, Text: tokensText(tokens)}, Kind: ""}, nil
 	}
-	base := pyriteStmtBase{Line: line, Indent: indent, Tokens: tokens, Text: tokensText(tokens)}
+	base := pyriteStmtBase{Line: line, Indent: indent, Text: tokensText(tokens)}
 	first := tokens[0].Lexeme
 	switch first {
 	case "return":
@@ -480,7 +480,6 @@ func parsePyriteStatementTokens(tokens []pyriteToken, line, indent int) (pyriteS
 		if err != nil {
 			return nil, err
 		}
-		target := strings.TrimSpace(tokensText(tokens[:idx]))
 		if colon := topLevelTokenIndex(tokens[:idx], tokenColon); colon >= 0 && len(tokens[:idx]) > 0 {
 			return &pyriteVarStmt{
 				pyriteStmtBase: base,
@@ -493,7 +492,7 @@ func parsePyriteStatementTokens(tokens []pyriteToken, line, indent int) (pyriteS
 		if err != nil {
 			return nil, err
 		}
-		return &pyriteAssignStmt{pyriteStmtBase: base, Target: target, TargetExpr: targetExpr, Value: value}, nil
+		return &pyriteAssignStmt{pyriteStmtBase: base, TargetExpr: targetExpr, Value: value}, nil
 	}
 	expr, err := parsePyriteExpressionTokens(tokens)
 	if err != nil {
@@ -519,7 +518,7 @@ func validatePyriteExpressionTokens(tokens []pyriteToken) error {
 }
 
 func validateForStatementExpressions(tokens []pyriteToken) error {
-	_, err := parseForStatement(tokens, pyriteStmtBase{Line: tokens[0].Line, Indent: tokens[0].Column - 1, Tokens: tokens, Text: tokensText(tokens)})
+	_, err := parseForStatement(tokens, pyriteStmtBase{Line: tokens[0].Line, Indent: tokens[0].Column - 1, Text: tokensText(tokens)})
 	return err
 }
 

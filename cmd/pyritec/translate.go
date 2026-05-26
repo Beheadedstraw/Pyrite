@@ -5,15 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 )
-
-var defHeaderRE = regexp.MustCompile(`^def ([A-Za-z_][A-Za-z0-9_]*)\((.*)\):$`)
-var nativeDefHeaderRE = regexp.MustCompile(`^native def ([A-Za-z_][A-Za-z0-9_]*)\((.*)\) -> ([A-Za-z_][A-Za-z0-9_\[\]:]*) = ([A-Za-z_][A-Za-z0-9_]*)$`)
-var classHeaderRE = regexp.MustCompile(`^class ([A-Za-z_][A-Za-z0-9_]*):$`)
-var enumHeaderRE = regexp.MustCompile(`^enum ([A-Za-z_][A-Za-z0-9_]*):$`)
 
 func (c *Compiler) translate(source string) error {
 	if err := c.collectSource(source, ""); err != nil {
@@ -257,27 +251,6 @@ func evalEnumIntExpr(expr pyriteExpr) (int, error) {
 	}
 }
 
-func parseClassDef(lineNo int, trimmed string, indent int) (*classDef, error) {
-	m := classHeaderRE.FindStringSubmatch(trimmed)
-	if m == nil {
-		return nil, fmt.Errorf("line %d: invalid class definition", lineNo)
-	}
-	return &classDef{
-		name:    m[1],
-		indent:  indent,
-		fields:  map[string]string{},
-		methods: map[string]*functionDef{},
-	}, nil
-}
-
-func parseEnumDef(lineNo int, trimmed string) (string, error) {
-	m := enumHeaderRE.FindStringSubmatch(trimmed)
-	if m == nil {
-		return "", fmt.Errorf("line %d: invalid enum definition", lineNo)
-	}
-	return m[1], nil
-}
-
 func (c *Compiler) loadModule(name string) error {
 	if c.loadedModules[name] {
 		return nil
@@ -323,36 +296,6 @@ func samePath(left, right string) bool {
 		return filepath.Clean(left) == filepath.Clean(right)
 	}
 	return leftAbs == rightAbs
-}
-
-func parseFunctionDef(lineNo int, trimmed string, indent int) (*functionDef, error) {
-	m := defHeaderRE.FindStringSubmatch(trimmed)
-	if m == nil {
-		return nil, fmt.Errorf("line %d: invalid function definition", lineNo)
-	}
-	fn := &functionDef{
-		name:       m[1],
-		paramTypes: map[string]string{},
-		indent:     indent,
-	}
-	params := splitArgs(m[2])
-	for _, raw := range params {
-		if strings.TrimSpace(raw) == "" {
-			continue
-		}
-		target, err := parseBindingTarget(raw)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNo, err)
-		}
-		if target.name == "" || strings.Contains(target.name, ".") {
-			return nil, fmt.Errorf("line %d: invalid parameter %q", lineNo, raw)
-		}
-		fn.params = append(fn.params, target.name)
-		if target.annotated != "" {
-			fn.paramTypes[target.name] = target.annotated
-		}
-	}
-	return fn, nil
 }
 
 func (c *Compiler) inferClassFields() error {
@@ -431,44 +374,6 @@ func (c *Compiler) inferClassFieldsFromStmt(cls *classDef, stmt pyriteStmt) erro
 		}
 	}
 	return nil
-}
-
-func parseNativeFunctionDef(lineNo int, trimmed string, indent int, moduleName string) (*functionDef, error) {
-	m := nativeDefHeaderRE.FindStringSubmatch(trimmed)
-	if m == nil {
-		return nil, fmt.Errorf("line %d: invalid native function definition", lineNo)
-	}
-	returnType, err := normalizeType(m[3])
-	if err != nil {
-		return nil, fmt.Errorf("line %d: %w", lineNo, err)
-	}
-	name := m[1]
-	if moduleName != "" {
-		name = moduleName + "." + name
-	}
-	fn := &functionDef{
-		name:         name,
-		paramTypes:   map[string]string{},
-		returnType:   returnType,
-		indent:       indent,
-		nativeSymbol: m[4],
-	}
-	params := splitArgs(m[2])
-	for _, raw := range params {
-		if strings.TrimSpace(raw) == "" {
-			continue
-		}
-		target, err := parseBindingTarget(raw)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", lineNo, err)
-		}
-		if target.name == "" || target.annotated == "" || strings.Contains(target.name, ".") {
-			return nil, fmt.Errorf("line %d: native parameter %q needs a name and type", lineNo, raw)
-		}
-		fn.params = append(fn.params, target.name)
-		fn.paramTypes[target.name] = target.annotated
-	}
-	return fn, nil
 }
 
 func (c *Compiler) compileMain(fn *functionDef) error {

@@ -16,15 +16,13 @@ type pyriteImportDecl struct {
 func (*pyriteImportDecl) topLevelNode() {}
 
 type pyriteBindingDecl struct {
-	Name       string
-	Type       string
-	Value      string
-	ValueExpr  pyriteExpr
-	Const      bool
-	Global     bool
-	Line       int
-	LineText   string
-	LineIndent int
+	Name      string
+	Type      string
+	Value     string
+	ValueExpr pyriteExpr
+	Const     bool
+	Global    bool
+	Line      int
 }
 
 func (*pyriteBindingDecl) topLevelNode() {}
@@ -81,7 +79,6 @@ type pyriteStmtBase struct {
 	Line     int
 	Indent   int
 	Text     string
-	Tokens   []pyriteToken
 	Children []pyriteStmt
 }
 
@@ -166,7 +163,6 @@ func (*pyriteVarStmt) stmtNode() {}
 
 type pyriteAssignStmt struct {
 	pyriteStmtBase
-	Target     string
 	TargetExpr pyriteExpr
 	Value      pyriteExpr
 }

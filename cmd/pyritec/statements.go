@@ -677,8 +677,8 @@ func (c *Compiler) emitRoutineAST(lineNo int, args []pyriteExpr) error {
 		}
 		return nil
 	}
-	name := renderPyriteExpr(call.Callee)
-	if c.functions[name] == nil {
+	name, ok := callNameExpr(call.Callee)
+	if !ok || c.functions[name] == nil {
 		return fmt.Errorf("line %d: routine currently supports print(...) and helper function calls", lineNo)
 	}
 	return c.emitRoutineFunctionCallAST(lineNo, name, call.Args, muxCode)

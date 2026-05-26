@@ -159,12 +159,11 @@ func (c *Compiler) indexExprAST(expr *pyriteIndexExpr) (string, string, error) {
 }
 
 func (c *Compiler) callExprAST(expr *pyriteCallExpr) (string, string, error) {
-	rendered := renderPyriteExpr(expr)
-	if rendered == "mux()" {
+	if name, ok := callNameExpr(expr.Callee); ok && name == "mux" && len(expr.Args) == 0 {
 		return "pyrite_mux_new()", "mux", nil
 	}
-	calleeName := renderPyriteExpr(expr.Callee)
-	if calleeName != "" {
+	calleeName, hasCalleeName := callNameExpr(expr.Callee)
+	if hasCalleeName {
 		if _, exists := c.classes[calleeName]; exists {
 			return c.classConstructorCallExprAST(calleeName, expr.Args)
 		}
@@ -187,7 +186,7 @@ func (c *Compiler) callExprAST(expr *pyriteCallExpr) (string, string, error) {
 	if code, kind, ok, err := c.compilerIntrinsicCallExprAST(calleeName, expr.Args); ok || err != nil {
 		return code, kind, err
 	}
-	return "", "", fmt.Errorf("unsupported call %s", rendered)
+	return "", "", fmt.Errorf("unsupported call %s", describePyriteExpr(expr))
 }
 
 func (c *Compiler) methodCallExprAST(member *pyriteMemberExpr, args []pyriteExpr) (string, string, bool, error) {
@@ -678,7 +677,10 @@ func (c *Compiler) netServeDelimitedExprAST(args []pyriteExpr) (string, string, 
 	if delimiterKind != "string" {
 		return "", "", fmt.Errorf("net.serve_delimited delimiter must be string, got %s", delimiterKind)
 	}
-	handlerName := renderPyriteExpr(args[3])
+	handlerName, ok := callNameExpr(args[3])
+	if !ok {
+		return "", "", fmt.Errorf("net.serve_delimited handler must be a function name")
+	}
 	handler := c.functions[handlerName]
 	if handler == nil {
 		return "", "", fmt.Errorf("net.serve_delimited handler must be a function name, got %q", handlerName)
@@ -695,7 +697,10 @@ func (c *Compiler) netServeDelimitedExprAST(args []pyriteExpr) (string, string, 
 	if handler.returnType != "string" {
 		return "", "", fmt.Errorf("net.serve_delimited handler %s must return string, got %s", handlerName, handler.returnType)
 	}
-	closeName := renderPyriteExpr(args[4])
+	closeName, ok := callNameExpr(args[4])
+	if !ok {
+		return "", "", fmt.Errorf("net.serve_delimited should_close must be a function name")
+	}
 	closeFn := c.functions[closeName]
 	if closeFn == nil {
 		return "", "", fmt.Errorf("net.serve_delimited should_close must be a function name, got %q", closeName)
@@ -866,9 +871,10 @@ func argCodes(args []compiledExprArg) []string {
 }
 
 func (c *Compiler) memberExprAST(expr *pyriteMemberExpr) (string, string, error) {
-	rendered := renderPyriteExpr(expr)
-	if kind, ok := c.types[rendered]; ok {
-		return c.variableCName(rendered), kind, nil
+	if path, ok := memberPathExpr(expr); ok {
+		if kind, exists := c.types[path]; exists {
+			return c.variableCName(path), kind, nil
+		}
 	}
 	base, baseKind, err := c.exprAST(expr.Base)
 	if err != nil {
@@ -886,19 +892,19 @@ func (c *Compiler) memberExprAST(expr *pyriteMemberExpr) (string, string, error)
 		return c.classFieldGetter(base, expr.Field, kind), kind, nil
 	}
 	if baseKind != "object" {
-		return "", "", fmt.Errorf("unsupported member base %s", renderPyriteExpr(expr.Base))
+		return "", "", fmt.Errorf("unsupported member base %s", describePyriteExpr(expr.Base))
 	}
-	baseRaw := renderPyriteExpr(expr.Base)
-	if !isIdentifier(baseRaw) {
+	baseName, ok := variableNameExpr(expr.Base)
+	if !ok {
 		return "", "", fmt.Errorf("object member base must be a variable")
 	}
 	switch expr.Field {
 	case "name":
-		return fmt.Sprintf("obj_name(&%s)", baseRaw), "string", nil
+		return fmt.Sprintf("obj_name(&%s)", baseName), "string", nil
 	case "kind":
-		return fmt.Sprintf("obj_kind(&%s)", baseRaw), "string", nil
+		return fmt.Sprintf("obj_kind(&%s)", baseName), "string", nil
 	case "score":
-		return fmt.Sprintf("obj_score(&%s)", baseRaw), "int", nil
+		return fmt.Sprintf("obj_score(&%s)", baseName), "int", nil
 	default:
 		return "", "", fmt.Errorf("unsupported member %s", expr.Field)
 	}
@@ -946,36 +952,67 @@ func isComparisonOperator(op string) bool {
 	}
 }
 
-func renderPyriteExpr(expr pyriteExpr) string {
+func callNameExpr(expr pyriteExpr) (string, bool) {
+	switch node := expr.(type) {
+	case *pyriteNameExpr:
+		return node.Name, true
+	case *pyriteMemberExpr:
+		base, ok := callNameExpr(node.Base)
+		if !ok {
+			return "", false
+		}
+		return base + "." + node.Field, true
+	default:
+		return "", false
+	}
+}
+
+func variableNameExpr(expr pyriteExpr) (string, bool) {
+	name, ok := expr.(*pyriteNameExpr)
+	if !ok {
+		return "", false
+	}
+	return name.Name, true
+}
+
+func memberPathExpr(expr *pyriteMemberExpr) (string, bool) {
+	base, ok := callNameExpr(expr.Base)
+	if !ok {
+		return "", false
+	}
+	return base + "." + expr.Field, true
+}
+
+func describePyriteExpr(expr pyriteExpr) string {
 	switch node := expr.(type) {
 	case *pyriteNameExpr:
 		return node.Name
 	case *pyriteLiteralExpr:
 		return node.Value
 	case *pyriteUnaryExpr:
-		return node.Op + renderPyriteExpr(node.Right)
+		return node.Op + describePyriteExpr(node.Right)
 	case *pyriteBinaryExpr:
-		return renderPyriteExpr(node.Left) + " " + node.Op + " " + renderPyriteExpr(node.Right)
+		return describePyriteExpr(node.Left) + " " + node.Op + " " + describePyriteExpr(node.Right)
 	case *pyriteIndexExpr:
-		return renderPyriteExpr(node.Base) + "[" + renderPyriteExpr(node.Index) + "]"
+		return describePyriteExpr(node.Base) + "[" + describePyriteExpr(node.Index) + "]"
 	case *pyriteMemberExpr:
-		return renderPyriteExpr(node.Base) + "." + node.Field
+		return describePyriteExpr(node.Base) + "." + node.Field
 	case *pyriteCallExpr:
 		args := make([]string, 0, len(node.Args))
 		for _, arg := range node.Args {
-			args = append(args, renderPyriteExpr(arg))
+			args = append(args, describePyriteExpr(arg))
 		}
-		return renderPyriteExpr(node.Callee) + "(" + strings.Join(args, ", ") + ")"
+		return describePyriteExpr(node.Callee) + "(" + strings.Join(args, ", ") + ")"
 	case *pyriteListExpr:
 		items := make([]string, 0, len(node.Items))
 		for _, item := range node.Items {
-			items = append(items, renderPyriteExpr(item))
+			items = append(items, describePyriteExpr(item))
 		}
 		return "[" + strings.Join(items, ", ") + "]"
 	case *pyriteObjectExpr:
 		entries := make([]string, 0, len(node.Entries))
 		for _, entry := range node.Entries {
-			entries = append(entries, renderPyriteExpr(entry.Key)+": "+renderPyriteExpr(entry.Value))
+			entries = append(entries, describePyriteExpr(entry.Key)+": "+describePyriteExpr(entry.Value))
 		}
 		return "{" + strings.Join(entries, ", ") + "}"
 	default:
