@@ -489,7 +489,11 @@ func parsePyriteStatementTokens(tokens []pyriteToken, line, indent int) (pyriteS
 				Value:          value,
 			}, nil
 		}
-		return &pyriteAssignStmt{pyriteStmtBase: base, Target: target, Value: value}, nil
+		targetExpr, err := parsePyriteExpressionTokens(tokens[:idx])
+		if err != nil {
+			return nil, err
+		}
+		return &pyriteAssignStmt{pyriteStmtBase: base, Target: target, TargetExpr: targetExpr, Value: value}, nil
 	}
 	expr, err := parsePyriteExpressionTokens(tokens)
 	if err != nil {

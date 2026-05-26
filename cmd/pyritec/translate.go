@@ -389,10 +389,11 @@ func (c *Compiler) inferClassFields() error {
 func (c *Compiler) inferClassFieldsFromStmt(cls *classDef, stmt pyriteStmt) error {
 	switch node := stmt.(type) {
 	case *pyriteAssignStmt:
-		if !strings.HasPrefix(node.Target, "self.") {
+		target, ok := assignmentTargetName(node.TargetExpr)
+		if !ok || !strings.HasPrefix(target, "self.") {
 			break
 		}
-		field := strings.TrimSpace(strings.TrimPrefix(node.Target, "self."))
+		field := strings.TrimSpace(strings.TrimPrefix(target, "self."))
 		if field == "" || strings.ContainsAny(field, ". \t") {
 			return fmt.Errorf("line %d: invalid class field assignment", node.Line)
 		}
@@ -684,7 +685,11 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 	case *pyriteVarStmt:
 		return c.emitAssignAST(base.Line, node.Name, node.Type, node.Value, false)
 	case *pyriteAssignStmt:
-		return c.emitAssignAST(base.Line, node.Target, "", node.Value, false)
+		target, err := mustAssignmentTargetName(base.Line, node.TargetExpr)
+		if err != nil {
+			return err
+		}
+		return c.emitAssignAST(base.Line, target, "", node.Value, false)
 	case *pyriteExprStmt:
 		return c.emitExprStmtAST(base.Line, node.Expr)
 	default:
@@ -911,7 +916,11 @@ func (c *Compiler) inferFunctionStmt(fn *functionDef, stmt pyriteStmt) error {
 	case *pyriteVarStmt:
 		return c.noteFunctionBinding(node.Line, node.Name, node.Type, node.Value)
 	case *pyriteAssignStmt:
-		return c.noteFunctionBinding(node.Line, node.Target, "", node.Value)
+		target, ok := assignmentTargetName(node.TargetExpr)
+		if !ok {
+			return nil
+		}
+		return c.noteFunctionBinding(node.Line, target, "", node.Value)
 	case *pyriteReturnStmt:
 		return c.noteFunctionReturnAST(fn, node.Line, node.Value)
 	case *pyriteForStmt:
@@ -996,6 +1005,29 @@ func (c *Compiler) noteFunctionReturnAST(fn *functionDef, lineNo int, expr pyrit
 		return fmt.Errorf("line %d: function %s returns both %s and %s", lineNo, fn.name, fn.returnType, kind)
 	}
 	return nil
+}
+
+func mustAssignmentTargetName(lineNo int, expr pyriteExpr) (string, error) {
+	name, ok := assignmentTargetName(expr)
+	if !ok {
+		return "", fmt.Errorf("line %d: unsupported assignment target", lineNo)
+	}
+	return name, nil
+}
+
+func assignmentTargetName(expr pyriteExpr) (string, bool) {
+	switch node := expr.(type) {
+	case *pyriteNameExpr:
+		return node.Name, true
+	case *pyriteMemberExpr:
+		base, ok := assignmentTargetName(node.Base)
+		if !ok {
+			return "", false
+		}
+		return base + "." + node.Field, true
+	default:
+		return "", false
+	}
 }
 
 func copyStringMap(src map[string]string) map[string]string {

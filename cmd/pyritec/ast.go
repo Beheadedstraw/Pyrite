@@ -166,8 +166,9 @@ func (*pyriteVarStmt) stmtNode() {}
 
 type pyriteAssignStmt struct {
 	pyriteStmtBase
-	Target string
-	Value  pyriteExpr
+	Target     string
+	TargetExpr pyriteExpr
+	Value      pyriteExpr
 }
 
 func (*pyriteAssignStmt) stmtNode() {}

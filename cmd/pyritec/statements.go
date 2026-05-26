@@ -1075,7 +1075,11 @@ func (c *Compiler) predeclareStmtLocals(stmt pyriteStmt, declared map[string]str
 			return err
 		}
 	case *pyriteAssignStmt:
-		if err := c.predeclareLocal(node.Line, node.Target, "", node.Value, declared); err != nil {
+		target, ok := assignmentTargetName(node.TargetExpr)
+		if !ok {
+			return nil
+		}
+		if err := c.predeclareLocal(node.Line, target, "", node.Value, declared); err != nil {
 			return err
 		}
 	case *pyriteIfStmt:
