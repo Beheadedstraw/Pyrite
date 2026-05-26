@@ -177,6 +177,9 @@ func (c *Compiler) emitAssignAST(lineNo int, name, annotated string, valueExpr p
 	} else if existing != "" {
 		storeKind = existing
 	}
+	if storeKind == "none" {
+		return fmt.Errorf("line %d: None assignments need a type annotation", lineNo)
+	}
 	if storeKind == "any" && kind != "any" {
 		code, err = anyValue(code, kind)
 		if err != nil {
@@ -805,6 +808,9 @@ func (c *Compiler) emitGlobalAST(lineNo int, decl *pyriteBindingDecl) error {
 	if annotated != "" {
 		storeKind = annotated
 	}
+	if storeKind == "none" {
+		return fmt.Errorf("line %d: None globals need a type annotation", lineNo)
+	}
 	c.types[decl.Name] = storeKind
 	if decl.Const {
 		c.consts[decl.Name] = true
@@ -851,6 +857,9 @@ func (c *Compiler) emitModuleGlobalAST(lineNo int, moduleName string, decl *pyri
 	storeKind := kind
 	if annotated != "" {
 		storeKind = annotated
+	}
+	if storeKind == "none" {
+		return fmt.Errorf("line %d: None module globals need a type annotation", lineNo)
 	}
 	c.types[sourceName] = storeKind
 	cName := c.variableCName(sourceName)

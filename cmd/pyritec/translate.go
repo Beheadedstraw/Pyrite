@@ -320,8 +320,15 @@ func (c *Compiler) inferClassFieldsFromStmt(cls *classDef, stmt pyriteStmt) erro
 		if err != nil {
 			return fmt.Errorf("line %d: %w", node.Line, err)
 		}
-		if existing := cls.fields[field]; existing != "" && !typesCompatible(existing, kind) {
+		existing := cls.fields[field]
+		if existing == "none" && kind != "none" {
+			existing = ""
+		}
+		if existing != "" && !typesCompatible(existing, kind) {
 			return fmt.Errorf("line %d: class %s field %s is both %s and %s", node.Line, cls.name, field, existing, kind)
+		}
+		if kind == "none" && existing != "" {
+			kind = existing
 		}
 		cls.fields[field] = kind
 		c.types["self."+field] = kind

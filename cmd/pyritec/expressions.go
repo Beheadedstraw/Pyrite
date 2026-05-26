@@ -10,6 +10,8 @@ func anyValue(code, kind string) (string, error) {
 	switch kind {
 	case "any":
 		return code, nil
+	case "none":
+		return "(PyriteAny){.kind=PYRITE_ANY_NONE}", nil
 	case "int":
 		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_INT, .as.i=%s}", code), nil
 	case "float":
@@ -20,7 +22,14 @@ func anyValue(code, kind string) (string, error) {
 		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_STRING, .as.s=pyrite_promote_string(%s)}", code), nil
 	case "bytes":
 		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(%s)}", code), nil
+	case "list_int":
+		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_LIST, .as.list=pyrite_list_any_box(pyrite_list_int_to_any(%s))}", code), nil
+	case "list_any":
+		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_LIST, .as.list=pyrite_list_any_box(%s)}", code), nil
 	default:
+		if strings.HasPrefix(kind, "list:") {
+			return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_LIST, .as.list=pyrite_list_any_box(%s)}", code), nil
+		}
 		if isClassKind(kind) {
 			return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_CLASS, .as.obj=%s}", code), nil
 		}
@@ -32,6 +41,8 @@ func anyAccess(code, kind string) string {
 	switch kind {
 	case "any":
 		return code
+	case "none":
+		return "NULL"
 	case "int":
 		return fmt.Sprintf("pyrite_any_as_int(%s)", code)
 	case "float":
@@ -42,7 +53,12 @@ func anyAccess(code, kind string) string {
 		return fmt.Sprintf("pyrite_any_as_string(%s)", code)
 	case "bytes":
 		return fmt.Sprintf("pyrite_any_as_bytes(%s)", code)
+	case "list_any":
+		return fmt.Sprintf("pyrite_any_as_list(%s)", code)
 	default:
+		if strings.HasPrefix(kind, "list:") {
+			return fmt.Sprintf("pyrite_any_as_list(%s)", code)
+		}
 		if isClassKind(kind) {
 			return fmt.Sprintf("pyrite_any_as_class(%s, \"%s\")", code, classNameFromKind(kind))
 		}
@@ -135,6 +151,12 @@ func (c *Compiler) classFieldGetter(base, field, kind string) string {
 	case "any":
 		return fmt.Sprintf("pyrite_class_get_any(%s, \"%s\")", base, field)
 	default:
+		if strings.HasPrefix(kind, "list:") || kind == "list_any" {
+			return anyAccess(fmt.Sprintf("pyrite_class_get_any(%s, \"%s\")", base, field), kind)
+		}
+		if isClassKind(kind) {
+			return anyAccess(fmt.Sprintf("pyrite_class_get_any(%s, \"%s\")", base, field), kind)
+		}
 		return fmt.Sprintf("pyrite_class_get_any(%s, \"%s\")", base, field)
 	}
 }

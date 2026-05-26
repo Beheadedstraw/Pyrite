@@ -40,6 +40,8 @@ func (c *Compiler) exprAST(expr pyriteExpr) (string, string, error) {
 
 func (c *Compiler) literalExprAST(expr *pyriteLiteralExpr) (string, string, error) {
 	switch expr.Kind {
+	case "none":
+		return "NULL", "none", nil
 	case "bool":
 		if expr.Value == "true" || expr.Value == "True" {
 			return "1", "bool", nil

@@ -25,17 +25,26 @@ typedef struct {
 
 typedef PyriteBytes PyriteBytesBuilder;
 typedef struct PyriteClassObject PyriteClassObject;
+typedef struct PyriteAny PyriteAny;
+
+typedef struct {
+    PyriteAny *items;
+    size_t len;
+    size_t cap;
+} PyriteAnyList;
 
 typedef enum {
+    PYRITE_ANY_NONE,
     PYRITE_ANY_INT,
     PYRITE_ANY_FLOAT,
     PYRITE_ANY_BOOL,
     PYRITE_ANY_STRING,
     PYRITE_ANY_BYTES,
+    PYRITE_ANY_LIST,
     PYRITE_ANY_CLASS
 } PyriteAnyKind;
 
-typedef struct {
+struct PyriteAny {
     PyriteAnyKind kind;
     union {
         long i;
@@ -43,15 +52,10 @@ typedef struct {
         int b;
         char *s;
         PyriteBytes bytes;
+        PyriteAnyList *list;
         PyriteClassObject *obj;
     } as;
-} PyriteAny;
-
-typedef struct {
-    PyriteAny *items;
-    size_t len;
-    size_t cap;
-} PyriteAnyList;
+};
 
 typedef struct {
     char *key;
@@ -74,6 +78,9 @@ static PyriteAny pyrite_any_clone(PyriteAny value);
 static void pyrite_release_any(PyriteAny *value);
 static char *pyrite_any_string(PyriteAny value);
 static char *pyrite_promote_string(const char *s);
+static PyriteAnyList pyrite_list_any_copy(PyriteAnyList list);
+static PyriteAnyList *pyrite_list_any_box(PyriteAnyList list);
+static char *pyrite_list_any_string(PyriteAnyList *list);
 
 typedef struct {
     char *name;
@@ -638,6 +645,12 @@ static PyriteAnyList pyrite_list_any_copy(PyriteAnyList list) {
     for (size_t i = 0; i < list.len; i++) out.items[i] = pyrite_any_clone(list.items[i]);
     return out;
 }
+static PyriteAnyList *pyrite_list_any_box(PyriteAnyList list) {
+    PyriteAnyList *boxed = pyrite_malloc(sizeof(PyriteAnyList));
+    if (!boxed) return 0;
+    *boxed = pyrite_list_any_copy(list);
+    return boxed;
+}
 static long pyrite_list_any_len(PyriteAnyList list) { return (long)list.len; }
 static PyriteAny pyrite_list_any_get(PyriteAnyList list, long index) {
     if (index < 0 || (size_t)index >= list.len || !list.items) return (PyriteAny){.kind=PYRITE_ANY_INT, .as.i=0};
@@ -961,8 +974,12 @@ static char *pyrite_any_string(PyriteAny value) {
         return value.as.s ? value.as.s : "";
     case PYRITE_ANY_BYTES:
         return pyrite_bytes_to_string(value.as.bytes);
+    case PYRITE_ANY_LIST:
+        return value.as.list ? pyrite_list_any_string(value.as.list) : "[]";
     case PYRITE_ANY_CLASS:
         return value.as.obj && value.as.obj->class_name ? value.as.obj->class_name : "<object>";
+    case PYRITE_ANY_NONE:
+        return "None";
     default:
         return "";
     }
@@ -988,6 +1005,7 @@ static int pyrite_any_as_bool(PyriteAny value) {
     if (value.kind == PYRITE_ANY_FLOAT) return value.as.f != 0.0;
     if (value.kind == PYRITE_ANY_STRING) return value.as.s && value.as.s[0] != '\0';
     if (value.kind == PYRITE_ANY_BYTES) return value.as.bytes.len != 0;
+    if (value.kind == PYRITE_ANY_LIST) return value.as.list && value.as.list->len != 0;
     return value.kind == PYRITE_ANY_CLASS && value.as.obj != 0;
 }
 
@@ -999,6 +1017,11 @@ static char *pyrite_any_as_string(PyriteAny value) {
 static PyriteBytes pyrite_any_as_bytes(PyriteAny value) {
     if (value.kind == PYRITE_ANY_BYTES) return pyrite_bytes_copy(value.as.bytes);
     return (PyriteBytes){0};
+}
+
+static PyriteAnyList pyrite_any_as_list(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_LIST && value.as.list) return pyrite_list_any_copy(*value.as.list);
+    return (PyriteAnyList){0};
 }
 
 static PyriteClassObject *pyrite_any_as_class(PyriteAny value, const char *class_name) {
@@ -1065,6 +1088,9 @@ static PyriteAny pyrite_any_clone(PyriteAny value) {
     }
     if (value.kind == PYRITE_ANY_BYTES) {
         return (PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(value.as.bytes)};
+    }
+    if (value.kind == PYRITE_ANY_LIST) {
+        return (PyriteAny){.kind=PYRITE_ANY_LIST, .as.list=value.as.list ? pyrite_list_any_box(*value.as.list) : 0};
     }
     return value;
 }

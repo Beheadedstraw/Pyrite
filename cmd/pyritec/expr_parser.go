@@ -118,6 +118,8 @@ func (p *pyriteExprParser) parsePrefix() (pyriteExpr, error) {
 		switch tok.Lexeme {
 		case "True", "False", "true", "false":
 			return &pyriteLiteralExpr{Value: tok.Lexeme, Kind: "bool", Line: tok.Line}, nil
+		case "None":
+			return &pyriteLiteralExpr{Value: tok.Lexeme, Kind: "none", Line: tok.Line}, nil
 		default:
 			return &pyriteNameExpr{Name: tok.Lexeme, Line: tok.Line}, nil
 		}

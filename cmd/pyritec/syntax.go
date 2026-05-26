@@ -93,7 +93,10 @@ func typesCompatible(want, got string) bool {
 	if want == got {
 		return true
 	}
-	if want == "any" && (got == "int" || got == "float" || got == "bool" || got == "string" || got == "bytes" || isDictKind(got) || isClassKind(got)) {
+	if got == "none" && (want == "any" || want == "string" || isClassKind(want)) {
+		return true
+	}
+	if want == "any" && (got == "none" || got == "int" || got == "float" || got == "bool" || got == "string" || got == "bytes" || isListKind(got) || isDictKind(got) || isClassKind(got)) {
 		return true
 	}
 	if want == "list_any" && isListKind(got) {

@@ -74,6 +74,49 @@ def main():
 	}
 }
 
+func TestCompilerSupportsCompilerShapedClassContainers(t *testing.T) {
+	source := `
+class Token:
+    def __init__(self, kind: int, text: string):
+        self.kind = kind
+        self.text = text
+
+class TokenStream:
+    def __init__(self, tokens: list[Token]):
+        self.tokens = tokens
+        self.current = None
+
+    def first(self):
+        self.current = self.tokens[0]
+        return self.current
+
+def main():
+    tokens: list[Token] = []
+    tokens = tokens.push(Token(1, "name"))
+    stream: TokenStream = TokenStream(tokens)
+    first: Token = stream.first()
+    print(first.text)
+    print(stream.tokens.len())
+    return first.kind
+`
+	compiler := NewCompiler("test.pyr", "/tmp/test")
+	if err := compiler.translate(source); err != nil {
+		t.Fatalf("translate failed: %v", err)
+	}
+	body := compiler.body.String() + compiler.funcs.String()
+	for _, want := range []string{
+		"pyrite_list_any_push",
+		"pyrite_list_any_box",
+		"pyrite_any_as_list",
+		"pyrite_any_as_class",
+		"PYRITE_ANY_NONE",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in compiler-shaped class output, got:\n%s", want, body)
+		}
+	}
+}
+
 func TestParserAcceptsInlineIfStatements(t *testing.T) {
 	source := `
 def state_name(state: int):
