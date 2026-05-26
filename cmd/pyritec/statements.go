@@ -764,78 +764,6 @@ func (c *Compiler) emitRoutineFunctionCallAST(lineNo int, name string, args []py
 	return nil
 }
 
-func (c *Compiler) isUserFunctionCall(s string) bool {
-	name, _, ok := splitCall(s)
-	if !ok || name == "main" {
-		return false
-	}
-	_, exists := c.functions[name]
-	return exists
-}
-
-func (c *Compiler) userFunctionCallExpr(lineNo int, s string) (string, string, error) {
-	name, rawArgs, ok := splitCall(s)
-	if !ok {
-		return "", "", fmt.Errorf("line %d: invalid function call", lineNo)
-	}
-	fn := c.functions[name]
-	if fn == nil {
-		return "", "", fmt.Errorf("line %d: unknown function %s", lineNo, name)
-	}
-	args := splitArgs(rawArgs)
-	if len(args) != len(fn.params) {
-		return "", "", fmt.Errorf("line %d: %s expects %d argument(s), got %d", lineNo, name, len(fn.params), len(args))
-	}
-	var codes []string
-	for i, arg := range args {
-		code, kind, err := c.expr(arg)
-		if err != nil {
-			return "", "", fmt.Errorf("line %d: %w", lineNo, err)
-		}
-		param := fn.params[i]
-		want := fn.paramTypes[param]
-		if want == "" {
-			fn.paramTypes[param] = kind
-		} else if !typesCompatible(want, kind) {
-			return "", "", fmt.Errorf("line %d: %s parameter %s is %s but got %s", lineNo, name, param, want, kind)
-		}
-		if want == "any" && kind != "any" {
-			code, err = anyValue(code, kind)
-			if err != nil {
-				return "", "", fmt.Errorf("line %d: %w", lineNo, err)
-			}
-		} else if want == "list_any" && kind == "list_int" {
-			code = fmt.Sprintf("pyrite_list_int_to_any(%s)", code)
-		}
-		codes = append(codes, code)
-	}
-	if fn.returnType == "" {
-		if err := c.inferFunctionReturn(fn); err != nil {
-			return "", "", err
-		}
-	}
-	if fn.nativeSymbol != "" {
-		return fmt.Sprintf("%s(%s)", fn.nativeSymbol, strings.Join(codes, ", ")), fn.returnType, nil
-	}
-	return fmt.Sprintf("%s(%s)", c.functionCName(name), strings.Join(codes, ", ")), fn.returnType, nil
-}
-
-func splitCall(s string) (string, string, bool) {
-	s = strings.TrimSpace(s)
-	if !strings.HasSuffix(s, ")") {
-		return "", "", false
-	}
-	open := strings.IndexByte(s, '(')
-	if open <= 0 {
-		return "", "", false
-	}
-	name := strings.TrimSpace(s[:open])
-	if !isCallName(name) {
-		return "", "", false
-	}
-	return name, strings.TrimSuffix(s[open+1:], ")"), true
-}
-
 func (c *Compiler) functionCName(name string) string {
 	return "pyrite_fn_" + sanitizeCName(name)
 }
@@ -1211,15 +1139,6 @@ func (c *Compiler) cType(kind string) string {
 		}
 		return "long"
 	}
-}
-
-func (c *Compiler) isClassMethodStatement(s string) bool {
-	_, _, _, ok := splitMethodCall(s)
-	if !ok {
-		return false
-	}
-	_, _, ok, err := c.classMethodCall(s)
-	return ok && err == nil
 }
 
 func (c *Compiler) constructorCName(name string) string {

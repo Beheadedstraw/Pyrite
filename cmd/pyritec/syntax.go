@@ -191,25 +191,6 @@ func isIdentifier(s string) bool {
 	return true
 }
 
-func isCallName(s string) bool {
-	if s == "" {
-		return false
-	}
-	parts := strings.Split(s, ".")
-	for _, part := range parts {
-		if !isIdentifier(part) {
-			return false
-		}
-	}
-	return true
-}
-
-func innerCall(s, name string) string {
-	s = strings.TrimSpace(s)
-	prefix := name + "("
-	return strings.TrimSuffix(strings.TrimPrefix(s, prefix), ")")
-}
-
 func splitArgs(s string) []string {
 	var args []string
 	var cur strings.Builder
