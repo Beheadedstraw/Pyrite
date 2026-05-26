@@ -39,5 +39,4 @@ Planned:
 
 - `list[float]`
 - dynamic vector lengths
-- appendable lists
 - normalized vectors and square-root length helpers

@@ -30,7 +30,40 @@ func parseBindingTarget(raw string) (bindingTarget, error) {
 }
 
 func normalizeType(raw string) (string, error) {
-	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(raw), " ", "")) {
+	cleaned := strings.ReplaceAll(strings.TrimSpace(raw), " ", "")
+	compact := strings.ToLower(cleaned)
+	if strings.HasPrefix(compact, "list[") && strings.HasSuffix(compact, "]") {
+		innerRaw := cleaned[5 : len(cleaned)-1]
+		inner, err := normalizeType(innerRaw)
+		if err != nil {
+			if isIdentifier(innerRaw) {
+				return "list:" + classKind(innerRaw), nil
+			}
+			return "", err
+		}
+		if inner == "int" {
+			return "list_int", nil
+		}
+		if inner == "any" {
+			return "list_any", nil
+		}
+		return "list:" + inner, nil
+	}
+	if strings.HasPrefix(compact, "dict[") && strings.HasSuffix(compact, "]") {
+		innerRaw := cleaned[5 : len(cleaned)-1]
+		inner, err := normalizeType(innerRaw)
+		if err != nil {
+			if isIdentifier(innerRaw) {
+				return "dict:" + classKind(innerRaw), nil
+			}
+			return "", err
+		}
+		if inner == "any" {
+			return "dict", nil
+		}
+		return "dict:" + inner, nil
+	}
+	switch compact {
 	case "int", "integer":
 		return "int", nil
 	case "float", "double":
@@ -66,6 +99,9 @@ func normalizeType(raw string) (string, error) {
 	case "object":
 		return "object", nil
 	default:
+		if isIdentifier(cleaned) {
+			return classKind(cleaned), nil
+		}
 		return "", fmt.Errorf("unsupported type annotation %q", strings.TrimSpace(raw))
 	}
 }
@@ -81,16 +117,50 @@ func typesCompatible(want, got string) bool {
 	if want == got {
 		return true
 	}
-	if want == "any" && (got == "int" || got == "float" || got == "bool" || got == "string" || got == "bytes") {
+	if want == "any" && (got == "int" || got == "float" || got == "bool" || got == "string" || got == "bytes" || isDictKind(got) || isClassKind(got)) {
 		return true
 	}
-	if want == "list_any" && got == "list_int" {
+	if want == "list_any" && isListKind(got) {
+		return true
+	}
+	if strings.HasPrefix(want, "list:") && got == "list_any" {
+		return true
+	}
+	if strings.HasPrefix(want, "dict:") && got == "dict" {
 		return true
 	}
 	if strings.HasPrefix(want, "class:") || strings.HasPrefix(got, "class:") {
 		return want == got
 	}
 	return want == "float" && got == "int"
+}
+
+func isListKind(kind string) bool {
+	return kind == "list_int" || kind == "list_any" || strings.HasPrefix(kind, "list:")
+}
+
+func listElementKind(kind string) string {
+	switch {
+	case kind == "list_int":
+		return "int"
+	case kind == "list_any":
+		return "any"
+	case strings.HasPrefix(kind, "list:"):
+		return strings.TrimPrefix(kind, "list:")
+	default:
+		return "any"
+	}
+}
+
+func isDictKind(kind string) bool {
+	return kind == "dict" || strings.HasPrefix(kind, "dict:")
+}
+
+func dictValueKind(kind string) string {
+	if strings.HasPrefix(kind, "dict:") {
+		return strings.TrimPrefix(kind, "dict:")
+	}
+	return "any"
 }
 
 func classKind(name string) string {

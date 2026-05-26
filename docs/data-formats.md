@@ -4,9 +4,10 @@ Pyrite ships first-version `json` and `xml` modules. The public standard
 library is written in importable `.pyr` files.
 
 `xml` is implemented in Pyrite using string methods. `json` is implemented in
-Pyrite on top of compiler intrinsics for scalar conversion and flat extraction;
-those intrinsics fill gaps until Pyrite has character indexing, appendable
-lists, and full dictionaries.
+Pyrite on top of compiler intrinsics for scalar conversion, array parsing, and
+flat extraction. The runtime now has dictionaries, but the JSON module still
+returns scalar `any` values and `list[any]` arrays rather than materializing
+JSON objects as `dict` values.
 
 ## JSON
 
@@ -39,9 +40,9 @@ Current APIs:
 - `json.get_float(value: string, key: string) -> float`
 - `json.get_bool(value: string, key: string) -> bool`
 
-This first version supports scalar values, mixed arrays of scalars, and flat
-object field extraction. Nested objects are planned for the fuller dictionary
-runtime.
+This version supports scalar values, mixed arrays of scalars, and flat object
+field extraction. Nested object materialization into runtime dictionaries is
+still planned.
 
 ## XML
 

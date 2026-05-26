@@ -1,0 +1,36 @@
+class Token:
+    def __init__(self, kind: int, text: string):
+        self.kind = kind
+        self.text = text
+
+enum TokenKind:
+    IDENT
+    NUMBER
+    STRING = 10
+
+def main():
+    source: string = "name"
+    print(source[0])
+    print(source.byte(1))
+
+    token: Token = Token(TokenKind.IDENT, source)
+    tokens: list[Token] = []
+    tokens = tokens.push(token)
+    first: Token = tokens.get(0)
+    # print(first.text)
+    print(tokens[0].text)
+    
+
+    kinds: dict[int] = dict()
+    kinds = kinds.set("ident", TokenKind.IDENT)
+    kinds = kinds.set("string", TokenKind.STRING)
+    print(kinds.get("string"))
+    
+    switch first.kind:
+        case TokenKind.IDENT:
+            print("ident")
+        case TokenKind.NUMBER:
+            print("number")
+        default:
+            print("other")
+    return 0

@@ -24,13 +24,15 @@ typedef struct {
 } PyriteStringBuilder;
 
 typedef PyriteBytes PyriteBytesBuilder;
+typedef struct PyriteClassObject PyriteClassObject;
 
 typedef enum {
     PYRITE_ANY_INT,
     PYRITE_ANY_FLOAT,
     PYRITE_ANY_BOOL,
     PYRITE_ANY_STRING,
-    PYRITE_ANY_BYTES
+    PYRITE_ANY_BYTES,
+    PYRITE_ANY_CLASS
 } PyriteAnyKind;
 
 typedef struct {
@@ -41,6 +43,7 @@ typedef struct {
         int b;
         char *s;
         PyriteBytes bytes;
+        PyriteClassObject *obj;
     } as;
 } PyriteAny;
 
@@ -70,18 +73,19 @@ typedef struct {
 static PyriteAny pyrite_any_clone(PyriteAny value);
 static void pyrite_release_any(PyriteAny *value);
 static char *pyrite_any_string(PyriteAny value);
+static char *pyrite_promote_string(const char *s);
 
 typedef struct {
     char *name;
     PyriteAny value;
 } PyriteClassField;
 
-typedef struct {
+struct PyriteClassObject {
     char *class_name;
     PyriteClassField *fields;
     size_t len;
     size_t cap;
-} PyriteClassObject;
+};
 
 typedef struct PyriteAllocation {
     void *ptr;
@@ -202,6 +206,20 @@ static char *pyrite_string_slice(const char *s, long start, long end) {
     for (long i = 0; i < out_len; i++) out[i] = s[start + i];
     out[out_len] = '\0';
     return out;
+}
+
+static char *pyrite_string_at(const char *s, long index) {
+    if (!s || index < 0 || index >= (long)pyrite_strlen(s)) return pyrite_promote_string("");
+    char *out = pyrite_malloc(2);
+    if (!out) return "";
+    out[0] = s[index];
+    out[1] = '\0';
+    return out;
+}
+
+static long pyrite_string_byte_at(const char *s, long index) {
+    if (!s || index < 0 || index >= (long)pyrite_strlen(s)) return 0;
+    return (long)(unsigned char)s[index];
 }
 
 static int pyrite_string_startswith(const char *s, const char *prefix) {
@@ -778,9 +796,50 @@ static char *pyrite_any_string(PyriteAny value) {
         return value.as.s ? value.as.s : "";
     case PYRITE_ANY_BYTES:
         return pyrite_bytes_to_string(value.as.bytes);
+    case PYRITE_ANY_CLASS:
+        return value.as.obj && value.as.obj->class_name ? value.as.obj->class_name : "<object>";
     default:
         return "";
     }
+}
+
+static long pyrite_any_as_int(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_INT) return value.as.i;
+    if (value.kind == PYRITE_ANY_BOOL) return value.as.b;
+    if (value.kind == PYRITE_ANY_FLOAT) return (long)value.as.f;
+    return 0;
+}
+
+static double pyrite_any_as_float(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_FLOAT) return value.as.f;
+    if (value.kind == PYRITE_ANY_INT) return (double)value.as.i;
+    if (value.kind == PYRITE_ANY_BOOL) return (double)value.as.b;
+    return 0.0;
+}
+
+static int pyrite_any_as_bool(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_BOOL) return value.as.b;
+    if (value.kind == PYRITE_ANY_INT) return value.as.i != 0;
+    if (value.kind == PYRITE_ANY_FLOAT) return value.as.f != 0.0;
+    if (value.kind == PYRITE_ANY_STRING) return value.as.s && value.as.s[0] != '\0';
+    if (value.kind == PYRITE_ANY_BYTES) return value.as.bytes.len != 0;
+    return value.kind == PYRITE_ANY_CLASS && value.as.obj != 0;
+}
+
+static char *pyrite_any_as_string(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_STRING) return value.as.s ? value.as.s : "";
+    return pyrite_any_string(value);
+}
+
+static PyriteBytes pyrite_any_as_bytes(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_BYTES) return pyrite_bytes_copy(value.as.bytes);
+    return (PyriteBytes){0};
+}
+
+static PyriteClassObject *pyrite_any_as_class(PyriteAny value, const char *class_name) {
+    if (value.kind != PYRITE_ANY_CLASS || !value.as.obj) return 0;
+    if (class_name && value.as.obj->class_name && strcmp(value.as.obj->class_name, class_name) != 0) return 0;
+    return value.as.obj;
 }
 
 static char *pyrite_bytes_string(PyriteBytes *bytes) {
@@ -843,6 +902,65 @@ static PyriteAny pyrite_any_clone(PyriteAny value) {
         return (PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(value.as.bytes)};
     }
     return value;
+}
+
+static PyriteClassObject *pyrite_class_new(const char *class_name) {
+    PyriteClassObject *obj = pyrite_calloc(1, sizeof(PyriteClassObject));
+    if (!obj) return 0;
+    obj->class_name = pyrite_promote_string(class_name ? class_name : "");
+    return obj;
+}
+
+static PyriteClassField *pyrite_class_find_field(PyriteClassObject *obj, const char *name) {
+    if (!obj || !name) return 0;
+    for (size_t i = 0; i < obj->len; i++) {
+        if (strcmp(obj->fields[i].name, name) == 0) return &obj->fields[i];
+    }
+    return 0;
+}
+
+static void pyrite_class_set(PyriteClassObject *obj, const char *name, PyriteAny value) {
+    if (!obj || !name) return;
+    PyriteClassField *field = pyrite_class_find_field(obj, name);
+    if (field) {
+        field->value = value;
+        return;
+    }
+    if (obj->len == obj->cap) {
+        size_t next = obj->cap ? obj->cap * 2 : 4;
+        PyriteClassField *fields = pyrite_calloc(next, sizeof(PyriteClassField));
+        if (!fields) return;
+        for (size_t i = 0; i < obj->len; i++) fields[i] = obj->fields[i];
+        obj->fields = fields;
+        obj->cap = next;
+    }
+    obj->fields[obj->len].name = pyrite_promote_string(name);
+    obj->fields[obj->len].value = value;
+    obj->len++;
+}
+
+static PyriteAny pyrite_class_get_any(PyriteClassObject *obj, const char *name) {
+    PyriteClassField *field = pyrite_class_find_field(obj, name);
+    if (!field) return (PyriteAny){.kind=PYRITE_ANY_STRING, .as.s=""};
+    return field->value;
+}
+
+static char *pyrite_class_get_string(PyriteClassObject *obj, const char *name) {
+    PyriteAny value = pyrite_class_get_any(obj, name);
+    if (value.kind == PYRITE_ANY_STRING) return value.as.s ? value.as.s : "";
+    return pyrite_any_string(value);
+}
+
+static long pyrite_class_get_int(PyriteClassObject *obj, const char *name) {
+    return pyrite_any_as_int(pyrite_class_get_any(obj, name));
+}
+
+static double pyrite_class_get_float(PyriteClassObject *obj, const char *name) {
+    return pyrite_any_as_float(pyrite_class_get_any(obj, name));
+}
+
+static int pyrite_class_get_bool(PyriteClassObject *obj, const char *name) {
+    return pyrite_any_as_bool(pyrite_class_get_any(obj, name));
 }
 
 static void pyrite_release_any_list(PyriteAnyList *list) {

@@ -76,10 +76,10 @@ while True:
     print("loop forever")
 ```
 
-## Switch / Case
+## Switch / Match / Case
 
-`switch` evaluates the target once and checks `case` values in order. String
-switches compile to `strcmp` checks; integer and boolean switches compile to
+`switch` and `match` evaluate the target once and check `case` values in order.
+String values compile to `strcmp` checks; integer and boolean values compile to
 numeric comparisons.
 
 ```pyrite
@@ -90,12 +90,20 @@ switch path:
         return http.text("hello\n")
     default:
         return http.not_found()
+
+match kind:
+    case TokenKind.IDENT:
+        print("ident")
+    case _:
+        print("other")
 ```
 
 Supported first-version forms:
 
 - `switch value:`
+- `match value:`
 - `case value:`
+- `case _:`
 - `default:`
 - string, int, and bool switch values
 
@@ -118,8 +126,9 @@ foreach([1, 2, 3]):
 ```
 
 `foreach(items):` uses an implicit `item` variable. `foreach(items, name):`
-uses the provided item variable name. The current compiler supports `list[int]`
-and `list[any]` variables or list literals.
+uses the provided item variable name. The current compiler supports `list[int]`,
+`list[any]`, typed lists such as `list[string]` or `list[Token]`, and list
+literals.
 
 ## Try / Except
 

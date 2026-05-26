@@ -15,9 +15,10 @@ provided by the runtime. When user code imports the module, calls such as
 to the bound runtime call.
 
 Native functions currently require typed parameters and an explicit return type.
-Supported return types are the normal first-version Pyrite types, including
-`int`, `float`, `string`, `bool`, `any`, `socket`, `file`, `mux`, `list[int]`,
-`list[any]`, `dict`, and `listener`.
+Supported return types are the normal Pyrite runtime types, including `int`,
+`float`, `string`, `bytes`, `bool`, `any`, `socket`, `file`, `mux`,
+`list[int]`, `list[any]`, `list[T]`, `dict`, `dict[T]`, `set`,
+`string_builder`, `bytes_builder`, `object`, and `listener`.
 
 Current standard modules using this path:
 

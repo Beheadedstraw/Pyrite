@@ -23,6 +23,7 @@ type Compiler struct {
 	functions     map[string]*functionDef
 	functionOrder []string
 	classes       map[string]*classDef
+	enums         map[string]map[string]int
 	defers        []string
 	globals       bytes.Buffer
 	prototypes    bytes.Buffer
@@ -85,6 +86,7 @@ func NewCompiler(srcPath, outPath string) *Compiler {
 		globalTypes:   map[string]string{},
 		functions:     map[string]*functionDef{},
 		classes:       map[string]*classDef{},
+		enums:         map[string]map[string]int{},
 	}
 }
 

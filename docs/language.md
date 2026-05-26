@@ -62,9 +62,16 @@ Types are inferred by default. Optional annotations use Python-style syntax:
 x: int = 40
 ratio: float = 0.75
 name: string = "Ada"
+raw: bytes = b"AR\x00\xff"
 scores: list[int] = [10, 32]
 values: list[any] = ["Ada", 42, 3.5, True]
-user: dict = {"kind": "student"}
+tokens: list[Token] = []
+table: dict = dict()
+counts: dict[int] = dict()
+seen: set = set()
+text: string_builder = string_builder()
+data: bytes_builder = bytes_builder()
+user: object = {"kind": "student"}
 out: file = file.open("score.txt", "w").defer()
 tcp: socket = net.tcp("127.0.0.1", 8080).defer()
 server: listener = net.listen("127.0.0.1", 8080).defer()
@@ -76,15 +83,45 @@ First-version annotations:
 - `int`
 - `float`
 - `string` or `str`
+- `bytes`
 - `bool`
 - `any`
 - `list[int]`
 - `list[any]`
+- `list[T]` for typed lists backed by `any` values, including class types
 - `dict`
+- `dict[T]` for string-keyed dictionaries with typed values
+- `set`
+- `string_builder`
+- `bytes_builder`
+- `object`
 - `file`
 - `socket`
 - `listener`
 - `mux`
+
+Custom class names can be used as annotations after their class is declared:
+
+```pyrite
+token: Token = Token(0, "name")
+tokens: list[Token] = []
+by_name: dict[Token] = dict()
+```
+
+## Enums
+
+Enums define integer constants with dotted names:
+
+```pyrite
+enum TokenKind:
+    IDENT
+    NUMBER
+    STRING = 10
+
+kind: int = TokenKind.IDENT
+```
+
+Members auto-increment from zero unless a value is assigned.
 
 Boolean literals accept `True` and `False`. Lowercase `true` and `false` are
 also accepted for now.

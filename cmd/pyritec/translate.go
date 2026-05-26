@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var defHeaderRE = regexp.MustCompile(`^def ([A-Za-z_][A-Za-z0-9_]*)\((.*)\):$`)
-var nativeDefHeaderRE = regexp.MustCompile(`^native def ([A-Za-z_][A-Za-z0-9_]*)\((.*)\) -> ([A-Za-z_\[\]]+) = ([A-Za-z_][A-Za-z0-9_]*)$`)
+var nativeDefHeaderRE = regexp.MustCompile(`^native def ([A-Za-z_][A-Za-z0-9_]*)\((.*)\) -> ([A-Za-z_][A-Za-z0-9_\[\]:]*) = ([A-Za-z_][A-Za-z0-9_]*)$`)
 var classHeaderRE = regexp.MustCompile(`^class ([A-Za-z_][A-Za-z0-9_]*):$`)
+var enumHeaderRE = regexp.MustCompile(`^enum ([A-Za-z_][A-Za-z0-9_]*):$`)
 
 func (c *Compiler) translate(source string) error {
 	if err := c.collectSource(source, ""); err != nil {
@@ -64,6 +66,9 @@ func (c *Compiler) collectSource(source string, moduleName string) error {
 	scanner := bufio.NewScanner(strings.NewReader(source))
 	var current *functionDef
 	var currentClass *classDef
+	var currentEnum string
+	currentEnumIndent := 0
+	currentEnumNext := 0
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
@@ -82,8 +87,32 @@ func (c *Compiler) collectSource(source string, moduleName string) error {
 		if currentClass != nil && indent <= currentClass.indent {
 			currentClass = nil
 		}
+		if currentEnum != "" && indent <= currentEnumIndent {
+			currentEnum = ""
+		}
 
 		switch {
+		case currentEnum != "" && indent > currentEnumIndent:
+			value := currentEnumNext
+			name := trimmed
+			if strings.Contains(trimmed, "=") {
+				parts := strings.SplitN(trimmed, "=", 2)
+				name = strings.TrimSpace(parts[0])
+				parsed, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+				if err != nil {
+					return fmt.Errorf("line %d: enum value must be an integer", lineNo)
+				}
+				value = parsed
+			}
+			if !isIdentifier(name) {
+				return fmt.Errorf("line %d: invalid enum member %q", lineNo, name)
+			}
+			c.enums[currentEnum][name] = value
+			cName := currentEnum + "." + name
+			c.types[cName] = "int"
+			c.consts[cName] = true
+			c.globals.WriteString(fmt.Sprintf("static const long %s = %d;\n", c.variableCName(cName), value))
+			currentEnumNext = value + 1
 		case currentClass != nil && strings.HasPrefix(trimmed, "def "):
 			fn, err := parseFunctionDef(lineNo, trimmed, indent)
 			if err != nil {
@@ -144,6 +173,21 @@ func (c *Compiler) collectSource(source string, moduleName string) error {
 			}
 			c.classes[cls.name] = cls
 			currentClass = cls
+		case strings.HasPrefix(trimmed, "enum "):
+			if moduleName != "" {
+				return fmt.Errorf("line %d: module enums are not supported yet", lineNo)
+			}
+			name, err := parseEnumDef(lineNo, trimmed)
+			if err != nil {
+				return err
+			}
+			if _, exists := c.enums[name]; exists {
+				return fmt.Errorf("line %d: duplicate enum %s", lineNo, name)
+			}
+			c.enums[name] = map[string]int{}
+			currentEnum = name
+			currentEnumIndent = indent
+			currentEnumNext = 0
 		case strings.HasPrefix(trimmed, "def "):
 			fn, err := parseFunctionDef(lineNo, trimmed, indent)
 			if err != nil {
@@ -183,6 +227,14 @@ func parseClassDef(lineNo int, trimmed string, indent int) (*classDef, error) {
 		fields:  map[string]string{},
 		methods: map[string]*functionDef{},
 	}, nil
+}
+
+func parseEnumDef(lineNo int, trimmed string) (string, error) {
+	m := enumHeaderRE.FindStringSubmatch(trimmed)
+	if m == nil {
+		return "", fmt.Errorf("line %d: invalid enum definition", lineNo)
+	}
+	return m[1], nil
 }
 
 func (c *Compiler) loadModule(name string) error {

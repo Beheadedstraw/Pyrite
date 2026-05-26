@@ -49,14 +49,26 @@ func (c *Compiler) expr(s string) (string, string, error) {
 	if strings.Contains(s, "[") && strings.HasSuffix(s, "]") {
 		name := s[:strings.IndexByte(s, '[')]
 		idx := strings.TrimSuffix(s[strings.IndexByte(s, '[')+1:], "]")
-		if c.types[name] == "list_int" {
-			return fmt.Sprintf("%s.items[%s]", name, idx), "int", nil
+		idxCode, idxKind, idxErr := c.expr(idx)
+		if idxErr != nil {
+			return "", "", idxErr
 		}
-		if c.types[name] == "list_any" {
-			return fmt.Sprintf("%s.items[%s]", name, idx), "any", nil
+		if idxKind != "int" {
+			return "", "", fmt.Errorf("index expects int, got %s", idxKind)
+		}
+		if c.types[name] == "list_int" {
+			return fmt.Sprintf("%s.items[%s]", name, idxCode), "int", nil
+		}
+		if c.types[name] == "list_any" || strings.HasPrefix(c.types[name], "list:") {
+			value := fmt.Sprintf("pyrite_list_any_get(%s, %s)", name, idxCode)
+			elem := listElementKind(c.types[name])
+			return anyAccess(value, elem), elem, nil
 		}
 		if c.types[name] == "bytes" {
-			return fmt.Sprintf("pyrite_bytes_get(%s, %s)", name, idx), "int", nil
+			return fmt.Sprintf("pyrite_bytes_get(%s, %s)", name, idxCode), "int", nil
+		}
+		if c.types[name] == "string" {
+			return fmt.Sprintf("pyrite_string_at(%s, %s)", name, idxCode), "string", nil
 		}
 	}
 	if c.isUserFunctionCall(s) {
@@ -244,6 +256,8 @@ func (c *Compiler) listLiteral(s string) (string, string, error) {
 	var codes []string
 	var kinds []string
 	allInt := true
+	firstKind := ""
+	homogeneous := true
 	for _, item := range items {
 		code, kind, err := c.expr(item)
 		if err != nil {
@@ -253,6 +267,11 @@ func (c *Compiler) listLiteral(s string) (string, string, error) {
 		kinds = append(kinds, kind)
 		if kind != "int" {
 			allInt = false
+		}
+		if firstKind == "" {
+			firstKind = kind
+		} else if firstKind != kind {
+			homogeneous = false
 		}
 	}
 	if allInt {
@@ -266,7 +285,11 @@ func (c *Compiler) listLiteral(s string) (string, string, error) {
 		}
 		anyItems = append(anyItems, any)
 	}
-	return fmt.Sprintf("pyrite_list_any_new((PyriteAny[]){%s}, %d)", strings.Join(anyItems, ", "), len(anyItems)), "list_any", nil
+	kind := "list_any"
+	if homogeneous && firstKind != "" && firstKind != "any" {
+		kind = "list:" + firstKind
+	}
+	return fmt.Sprintf("pyrite_list_any_new((PyriteAny[]){%s}, %d)", strings.Join(anyItems, ", "), len(anyItems)), kind, nil
 }
 
 func anyValue(code, kind string) (string, error) {
@@ -284,7 +307,32 @@ func anyValue(code, kind string) (string, error) {
 	case "bytes":
 		return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(%s)}", code), nil
 	default:
+		if isClassKind(kind) {
+			return fmt.Sprintf("(PyriteAny){.kind=PYRITE_ANY_CLASS, .as.obj=%s}", code), nil
+		}
 		return "", fmt.Errorf("list[any] does not support %s items yet", kind)
+	}
+}
+
+func anyAccess(code, kind string) string {
+	switch kind {
+	case "any":
+		return code
+	case "int":
+		return fmt.Sprintf("pyrite_any_as_int(%s)", code)
+	case "float":
+		return fmt.Sprintf("pyrite_any_as_float(%s)", code)
+	case "bool":
+		return fmt.Sprintf("pyrite_any_as_bool(%s)", code)
+	case "string":
+		return fmt.Sprintf("pyrite_any_as_string(%s)", code)
+	case "bytes":
+		return fmt.Sprintf("pyrite_any_as_bytes(%s)", code)
+	default:
+		if isClassKind(kind) {
+			return fmt.Sprintf("pyrite_any_as_class(%s, \"%s\")", code, classNameFromKind(kind))
+		}
+		return code
 	}
 }
 
@@ -344,6 +392,9 @@ func (c *Compiler) stringMethodCall(s string) (string, string, bool, error) {
 		"ends_with":   {"pyrite_string_endswith", 1, "bool"},
 		"replace":     {"pyrite_string_replace", 2, "string"},
 		"slice":       {"pyrite_string_slice", 2, "string"},
+		"get":         {"pyrite_string_at", 1, "string"},
+		"at":          {"pyrite_string_at", 1, "string"},
+		"byte":        {"pyrite_string_byte_at", 1, "int"},
 	}
 	baseRaw, method, rawArgs, ok := splitMethodCall(s)
 	if !ok {
@@ -370,7 +421,7 @@ func (c *Compiler) stringMethodCall(s string) (string, string, bool, error) {
 		if err != nil {
 			return "", "", true, err
 		}
-		if method == "slice" {
+		if method == "slice" || method == "get" || method == "at" || method == "byte" {
 			if kind != "int" {
 				return "", "", true, fmt.Errorf("%s expects int argument, got %s", method, kind)
 			}
@@ -436,7 +487,7 @@ func (c *Compiler) listMethodCall(s string) (string, string, bool, error) {
 	if err != nil {
 		return "", "", true, err
 	}
-	if baseKind != "list_int" && baseKind != "list_any" {
+	if !isListKind(baseKind) {
 		return "", "", false, nil
 	}
 	args := splitArgs(rawArgs)
@@ -445,6 +496,9 @@ func (c *Compiler) listMethodCall(s string) (string, string, bool, error) {
 	if baseKind == "list_any" {
 		suffix = "any"
 		itemKind = "any"
+	} else if strings.HasPrefix(baseKind, "list:") {
+		suffix = "any"
+		itemKind = listElementKind(baseKind)
 	}
 	switch method {
 	case "len":
@@ -463,12 +517,20 @@ func (c *Compiler) listMethodCall(s string) (string, string, bool, error) {
 		if idxKind != "int" {
 			return "", "", true, fmt.Errorf("%s expects int index, got %s", method, idxKind)
 		}
-		return fmt.Sprintf("pyrite_list_%s_get(%s, %s)", suffix, base, idx), itemKind, true, nil
+		value := fmt.Sprintf("pyrite_list_%s_get(%s, %s)", suffix, base, idx)
+		if suffix == "any" {
+			value = anyAccess(value, itemKind)
+		}
+		return value, itemKind, true, nil
 	case "peek":
 		if len(args) != 0 {
 			return "", "", true, fmt.Errorf("peek expects 0 argument(s)")
 		}
-		return fmt.Sprintf("pyrite_list_%s_peek(%s)", suffix, base), itemKind, true, nil
+		value := fmt.Sprintf("pyrite_list_%s_peek(%s)", suffix, base)
+		if suffix == "any" {
+			value = anyAccess(value, itemKind)
+		}
+		return value, itemKind, true, nil
 	case "pop":
 		if len(args) != 0 {
 			return "", "", true, fmt.Errorf("pop expects 0 argument(s)")
@@ -486,7 +548,10 @@ func (c *Compiler) listMethodCall(s string) (string, string, bool, error) {
 			if valueKind != "int" {
 				return "", "", true, fmt.Errorf("push expects int value, got %s", valueKind)
 			}
-		} else if valueKind != "any" {
+		} else if itemKind != "any" && !typesCompatible(itemKind, valueKind) {
+			return "", "", true, fmt.Errorf("push expects %s value, got %s", itemKind, valueKind)
+		}
+		if baseKind != "list_int" && valueKind != "any" {
 			value, err = anyValue(value, valueKind)
 			if err != nil {
 				return "", "", true, err
@@ -512,7 +577,10 @@ func (c *Compiler) listMethodCall(s string) (string, string, bool, error) {
 			if valueKind != "int" {
 				return "", "", true, fmt.Errorf("set expects int value, got %s", valueKind)
 			}
-		} else if valueKind != "any" {
+		} else if itemKind != "any" && !typesCompatible(itemKind, valueKind) {
+			return "", "", true, fmt.Errorf("set expects %s value, got %s", itemKind, valueKind)
+		}
+		if baseKind != "list_int" && valueKind != "any" {
 			value, err = anyValue(value, valueKind)
 			if err != nil {
 				return "", "", true, err
@@ -535,7 +603,7 @@ func (c *Compiler) dictMethodCall(s string) (string, string, bool, error) {
 	if err != nil {
 		return "", "", true, err
 	}
-	if baseKind != "dict" {
+	if !isDictKind(baseKind) {
 		return "", "", false, nil
 	}
 	args := splitArgs(rawArgs)
@@ -560,13 +628,17 @@ func (c *Compiler) dictMethodCall(s string) (string, string, bool, error) {
 		if err != nil {
 			return "", "", true, err
 		}
+		want := dictValueKind(baseKind)
+		if want != "any" && !typesCompatible(want, valueKind) {
+			return "", "", true, fmt.Errorf("dict value must be %s, got %s", want, valueKind)
+		}
 		if valueKind != "any" {
 			value, err = anyValue(value, valueKind)
 			if err != nil {
 				return "", "", true, err
 			}
 		}
-		return fmt.Sprintf("pyrite_dict_set(%s, %s, %s)", base, key, value), "dict", true, nil
+		return fmt.Sprintf("pyrite_dict_set(%s, %s, %s)", base, key, value), baseKind, true, nil
 	}
 	if len(args) != 1 {
 		return "", "", true, fmt.Errorf("%s expects 1 argument(s)", method)
@@ -582,13 +654,15 @@ func (c *Compiler) dictMethodCall(s string) (string, string, bool, error) {
 	case "has":
 		return fmt.Sprintf("pyrite_dict_has(%s, %s)", base, key), "bool", true, nil
 	case "get":
-		return fmt.Sprintf("pyrite_dict_get(%s, %s)", base, key), "any", true, nil
+		value := fmt.Sprintf("pyrite_dict_get(%s, %s)", base, key)
+		kind := dictValueKind(baseKind)
+		return anyAccess(value, kind), kind, true, nil
 	case "get_string":
 		return fmt.Sprintf("pyrite_dict_get_string(%s, %s)", base, key), "string", true, nil
 	case "get_int":
 		return fmt.Sprintf("pyrite_dict_get_int(%s, %s)", base, key), "int", true, nil
 	case "remove":
-		return fmt.Sprintf("pyrite_dict_remove(%s, %s)", base, key), "dict", true, nil
+		return fmt.Sprintf("pyrite_dict_remove(%s, %s)", base, key), baseKind, true, nil
 	}
 	return "", "", false, nil
 }
@@ -1081,34 +1155,69 @@ func (c *Compiler) memberExpr(s string) (string, string, error) {
 	if kind, ok := c.types[s]; ok {
 		return c.variableCName(s), kind, nil
 	}
-	parts := strings.SplitN(s, ".", 2)
-	if len(parts) != 2 {
+	baseRaw, field, ok := splitMemberExpr(s)
+	if !ok {
 		return "", "", fmt.Errorf("unsupported member expression")
 	}
-	if isClassKind(c.types[parts[0]]) {
-		cls := c.classes[classNameFromKind(c.types[parts[0]])]
+	base, baseKind, err := c.expr(baseRaw)
+	if err != nil {
+		return "", "", err
+	}
+	if isClassKind(baseKind) {
+		cls := c.classes[classNameFromKind(baseKind)]
 		if cls == nil {
-			return "", "", fmt.Errorf("unknown class %s", classNameFromKind(c.types[parts[0]]))
+			return "", "", fmt.Errorf("unknown class %s", classNameFromKind(baseKind))
 		}
-		kind := cls.fields[parts[1]]
+		kind := cls.fields[field]
 		if kind == "" {
-			return "", "", fmt.Errorf("class %s has no field %s", cls.name, parts[1])
+			return "", "", fmt.Errorf("class %s has no field %s", cls.name, field)
 		}
-		return c.classFieldGetter(parts[0], parts[1], kind), kind, nil
+		return c.classFieldGetter(base, field, kind), kind, nil
 	}
-	if c.types[parts[0]] != "object" {
-		return "", "", fmt.Errorf("unsupported member base %s", parts[0])
+	if baseKind != "object" {
+		return "", "", fmt.Errorf("unsupported member base %s", baseRaw)
 	}
-	switch parts[1] {
+	if !isIdentifier(baseRaw) {
+		return "", "", fmt.Errorf("object member base must be a variable")
+	}
+	switch field {
 	case "name":
-		return fmt.Sprintf("obj_name(&%s)", parts[0]), "string", nil
+		return fmt.Sprintf("obj_name(&%s)", baseRaw), "string", nil
 	case "kind":
-		return fmt.Sprintf("obj_kind(&%s)", parts[0]), "string", nil
+		return fmt.Sprintf("obj_kind(&%s)", baseRaw), "string", nil
 	case "score":
-		return fmt.Sprintf("obj_score(&%s)", parts[0]), "int", nil
+		return fmt.Sprintf("obj_score(&%s)", baseRaw), "int", nil
 	default:
-		return "", "", fmt.Errorf("unsupported member %s", parts[1])
+		return "", "", fmt.Errorf("unsupported member %s", field)
 	}
+}
+
+func splitMemberExpr(s string) (string, string, bool) {
+	depth := 0
+	inString := false
+	for i := len(s) - 1; i >= 0; i-- {
+		ch := s[i]
+		if ch == '"' && (i == 0 || s[i-1] != '\\') {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch ch {
+		case ')', ']', '}':
+			depth++
+		case '(', '[', '{':
+			depth--
+		case '.':
+			if depth == 0 {
+				base := strings.TrimSpace(s[:i])
+				field := strings.TrimSpace(s[i+1:])
+				return base, field, base != "" && isIdentifier(field)
+			}
+		}
+	}
+	return "", "", false
 }
 
 func (c *Compiler) classFieldGetter(base, field, kind string) string {

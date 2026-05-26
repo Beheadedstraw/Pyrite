@@ -29,6 +29,17 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.double.bytes.pyrite",
+          "begin": "\\bb\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pyrite",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.f.pyrite",
           "begin": "\\bf\"",
           "end": "\"",
@@ -92,12 +103,26 @@
     "keywords": {
       "patterns": [
         {
+          "name": "keyword.control.default.pyrite",
+          "match": "^\\s*(default)(?=\\s*:)",
+          "captures": {
+            "1": { "name": "keyword.control.default.pyrite" }
+          }
+        },
+        {
+          "name": "keyword.control.case.pyrite",
+          "match": "^\\s*(case)(?=\\s+)",
+          "captures": {
+            "1": { "name": "keyword.control.case.pyrite" }
+          }
+        },
+        {
           "name": "keyword.control.pyrite",
-          "match": "\\b(if|else|while|for|foreach|switch|case|default|try|except|raise|return|defer|async)\\b"
+          "match": "\\b(if|else|while|for|foreach|switch|match|case|default|try|except|raise|return|defer|async)\\b"
         },
         {
           "name": "keyword.declaration.pyrite",
-          "match": "\\b(import|global|const|class|def|native)\\b"
+          "match": "\\b(import|global|const|class|enum|def|native)\\b"
         },
         {
           "name": "constant.language.boolean.pyrite",
@@ -109,7 +134,7 @@
       "patterns": [
         {
           "name": "storage.type.pyrite",
-          "match": "\\b(int|integer|float|double|string|str|bool|boolean|any|file|socket|sock|listener|server|serversocket|mux|mutex|dict|object|list\\s*\\[\\s*(int|any)\\s*\\])\\b"
+          "match": "\\b(int|integer|float|double|string|str|bytes|bytearray|bool|boolean|any|file|socket|sock|listener|server|serversocket|mux|mutex|dict|set|object|string_builder|bytes_builder|list\\s*\\[\\s*[A-Za-z_][A-Za-z0-9_]*\\s*\\]|dict\\s*\\[\\s*[A-Za-z_][A-Za-z0-9_]*\\s*\\])(?![A-Za-z0-9_])"
         },
         {
           "name": "entity.name.type.class.pyrite",
@@ -125,7 +150,7 @@
         },
         {
           "name": "support.module.pyrite",
-          "match": "\\b(file|net|http|regex|random|time|routines|strings|ints|floats|json|xml|vectors)\\b(?=\\.)"
+          "match": "\\b(file|net|http|regex|random|time|routines|strings|ints|floats|json|xml|vectors|kernel)\\b(?=\\.)"
         }
       ]
     },
@@ -153,6 +178,14 @@
           "captures": {
             "1": { "name": "keyword.declaration.class.pyrite" },
             "2": { "name": "entity.name.type.class.pyrite" }
+          }
+        },
+        {
+          "name": "meta.enum.pyrite",
+          "match": "^\\s*(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.enum.pyrite" },
+            "2": { "name": "entity.name.type.enum.pyrite" }
           }
         }
       ]
@@ -208,7 +241,7 @@
         },
         {
           "name": "variable.other.pyrite",
-          "match": "\\b(?!if\\b|else\\b|while\\b|for\\b|foreach\\b|switch\\b|case\\b|default\\b|try\\b|except\\b|raise\\b|return\\b|async\\b|import\\b|global\\b|const\\b|class\\b|def\\b|native\\b|True\\b|False\\b|true\\b|false\\b|self\\b|int\\b|float\\b|string\\b|str\\b|bool\\b|any\\b|file\\b|socket\\b|listener\\b|mux\\b|dict\\b|object\\b)[a-z_][A-Za-z0-9_]*\\b"
+          "match": "\\b(?!if\\b|else\\b|while\\b|for\\b|foreach\\b|switch\\b|match\\b|case\\b|default\\b|try\\b|except\\b|raise\\b|return\\b|async\\b|import\\b|global\\b|const\\b|class\\b|enum\\b|def\\b|native\\b|True\\b|False\\b|true\\b|false\\b|self\\b|int\\b|float\\b|string\\b|str\\b|bytes\\b|bool\\b|any\\b|file\\b|socket\\b|listener\\b|mux\\b|dict\\b|set\\b|object\\b|string_builder\\b|bytes_builder\\b)[a-z_][A-Za-z0-9_]*\\b"
         }
       ]
     },

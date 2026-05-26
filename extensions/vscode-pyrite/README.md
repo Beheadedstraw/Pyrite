@@ -5,13 +5,13 @@ VS Code support for Pyrite `.pyr` files.
 ## Features
 
 - Registers `.pyr` files as the `pyrite` language
-- Syntax highlighting for functions, classes, strings, f-strings, types,
-  standard modules, comments, and operators
+- Syntax highlighting for functions, classes, enums, strings, byte strings,
+  f-strings, typed containers, standard modules, comments, and operators
 - Language-server-backed code completion for keywords, types, built-ins,
   standard modules, standard module members, snippets, and local document
   symbols
-- Auto indentation for `def`, `class`, `if`, `else`, `while`, `for`,
-  `foreach`, `try`, and `except`
+- Auto indentation for `def`, `class`, `enum`, `if`, `else`, `while`, `for`,
+  `foreach`, `switch`, `match`, `try`, and `except`
 - Snippets for common Pyrite constructs
 - Commands:
   - `Pyrite: Compile Current File`

@@ -39,13 +39,15 @@ typedef struct {
 } PyriteStringBuilder;
 
 typedef PyriteBytes PyriteBytesBuilder;
+typedef struct PyriteClassObject PyriteClassObject;
 
 typedef enum {
     PYRITE_ANY_INT,
     PYRITE_ANY_FLOAT,
     PYRITE_ANY_BOOL,
     PYRITE_ANY_STRING,
-    PYRITE_ANY_BYTES
+    PYRITE_ANY_BYTES,
+    PYRITE_ANY_CLASS
 } PyriteAnyKind;
 
 typedef struct {
@@ -56,6 +58,7 @@ typedef struct {
         int b;
         char *s;
         PyriteBytes bytes;
+        PyriteClassObject *obj;
     } as;
 } PyriteAny;
 
@@ -86,18 +89,19 @@ static PyriteAny pyrite_any_clone(PyriteAny value);
 static void pyrite_release_any(PyriteAny *value);
 static char *pyrite_any_string(PyriteAny value);
 static char *pyrite_fmt(const char *fmt, ...);
+static int pyrite_class_object_keeps(PyriteClassObject *obj, void *ptr);
 
 typedef struct {
     char *name;
     PyriteAny value;
 } PyriteClassField;
 
-typedef struct {
+struct PyriteClassObject {
     char *class_name;
     PyriteClassField *fields;
     size_t len;
     size_t cap;
-} PyriteClassObject;
+};
 
 typedef struct PyriteAllocation {
     void *ptr;
@@ -223,6 +227,7 @@ static int pyrite_any_list_keeps(PyriteAnyList *list, void *ptr) {
     for (size_t i = 0; i < list->len; i++) {
         if (list->items[i].kind == PYRITE_ANY_STRING && ptr == list->items[i].as.s) return 1;
         if (list->items[i].kind == PYRITE_ANY_BYTES && ptr == list->items[i].as.bytes.items) return 1;
+        if (list->items[i].kind == PYRITE_ANY_CLASS && pyrite_class_object_keeps(list->items[i].as.obj, ptr)) return 1;
     }
     return 0;
 }
@@ -248,6 +253,7 @@ static int pyrite_class_object_keeps(PyriteClassObject *obj, void *ptr) {
         if (ptr == obj->fields[i].name) return 1;
         if (obj->fields[i].value.kind == PYRITE_ANY_STRING && ptr == obj->fields[i].value.as.s) return 1;
         if (obj->fields[i].value.kind == PYRITE_ANY_BYTES && ptr == obj->fields[i].value.as.bytes.items) return 1;
+        if (obj->fields[i].value.kind == PYRITE_ANY_CLASS && pyrite_class_object_keeps(obj->fields[i].value.as.obj, ptr)) return 1;
     }
     return 0;
 }
@@ -1354,9 +1360,50 @@ static char *pyrite_any_string(PyriteAny value) {
         return value.as.s ? value.as.s : "";
     case PYRITE_ANY_BYTES:
         return pyrite_bytes_to_string(value.as.bytes);
+    case PYRITE_ANY_CLASS:
+        return value.as.obj && value.as.obj->class_name ? value.as.obj->class_name : "<object>";
     default:
         return "";
     }
+}
+
+static long pyrite_any_as_int(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_INT) return value.as.i;
+    if (value.kind == PYRITE_ANY_BOOL) return value.as.b;
+    if (value.kind == PYRITE_ANY_FLOAT) return (long)value.as.f;
+    return 0;
+}
+
+static double pyrite_any_as_float(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_FLOAT) return value.as.f;
+    if (value.kind == PYRITE_ANY_INT) return (double)value.as.i;
+    if (value.kind == PYRITE_ANY_BOOL) return (double)value.as.b;
+    return 0.0;
+}
+
+static int pyrite_any_as_bool(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_BOOL) return value.as.b;
+    if (value.kind == PYRITE_ANY_INT) return value.as.i != 0;
+    if (value.kind == PYRITE_ANY_FLOAT) return value.as.f != 0.0;
+    if (value.kind == PYRITE_ANY_STRING) return value.as.s && value.as.s[0] != '\0';
+    if (value.kind == PYRITE_ANY_BYTES) return value.as.bytes.len != 0;
+    return value.kind == PYRITE_ANY_CLASS && value.as.obj != NULL;
+}
+
+static char *pyrite_any_as_string(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_STRING) return value.as.s ? value.as.s : "";
+    return pyrite_any_string(value);
+}
+
+static PyriteBytes pyrite_any_as_bytes(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_BYTES) return pyrite_bytes_copy(value.as.bytes);
+    return (PyriteBytes){0};
+}
+
+static PyriteClassObject *pyrite_any_as_class(PyriteAny value, const char *class_name) {
+    if (value.kind != PYRITE_ANY_CLASS || !value.as.obj) return NULL;
+    if (class_name && value.as.obj->class_name && strcmp(value.as.obj->class_name, class_name) != 0) return NULL;
+    return value.as.obj;
 }
 
 static char *pyrite_bytes_string(PyriteBytes *bytes) {
@@ -1970,6 +2017,20 @@ static char *pyrite_string_slice(const char *s, long start, long end) {
     if ((size_t)start > len) start = (long)len;
     if ((size_t)end > len) end = (long)len;
     return pyrite_string_copy_range(s, (size_t)start, (size_t)end);
+}
+
+static char *pyrite_string_at(const char *s, long index) {
+    if (!s || index < 0 || (size_t)index >= strlen(s)) return pyrite_promote_string("");
+    char *out = pyrite_malloc(2);
+    if (!out) return "";
+    out[0] = s[index];
+    out[1] = '\0';
+    return out;
+}
+
+static long pyrite_string_byte_at(const char *s, long index) {
+    if (!s || index < 0 || (size_t)index >= strlen(s)) return 0;
+    return (long)(unsigned char)s[index];
 }
 
 static char *pyrite_string_lstrip(const char *s) {

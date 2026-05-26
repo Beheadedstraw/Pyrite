@@ -34,16 +34,16 @@ Supported today:
 - `import name`, loading sibling modules or `stdlib/name.pyr`
 - `def main():` and simple helper functions like `def testr(m):`
 - inferred variables and optional static annotations like `name: string = "Ada"`
-- `int`, `float`, `string`, `bool`, `any`, `list[int]`, `list[any]`, `dict`, `file`, `socket`, `listener`, and `mux` annotations
+- `int`, `float`, `string`, `bool`, `bytes`, `any`, `list[int]`, `list[any]`, `list[T]`, `dict`, `dict[T]`, `set`, builders, resources, and class annotations
 - immutable bindings with `const`
 - module globals with `global`
 - integer addition
 - integer lists and `for item in list:`
 - `foreach(items):`, `foreach(items, item_name):`, and `foreach([1, 2, 3]):` list iteration
-- mixed `list[any]` lists with ints, floats, bools, and strings
+- mixed `list[any]` lists and typed lists/dicts with primitive or class values
 - object-shaped values with inherited defaults from imported Pyrite modules
 - first-version classes with `__init__`, fields, and methods
-- `if` / `else` and `while` comparisons
+- `if` / `else`, `while`, `switch`, and `match` comparisons
 - `try` / `except`, string `raise`, and catchable `file.open` failures
 - standard `json` and `xml` modules for first-version data format handling
 - pure Pyrite `vectors` module for fixed 2D/3D integer vector math
@@ -57,7 +57,7 @@ Supported today:
 - stdlib-backed `random.int`
 - `random.seed`, `random.float`, and `random.choice`
 - stdlib-backed `time.sleep(seconds)`
-- string methods like `value.strip()`, `value.upper()`, `value.replace(...)`, `value.slice(...)`
+- string methods like `value.strip()`, `value.upper()`, `value.replace(...)`, `value.slice(...)`, and `value[index]`
 - numeric methods like `value.abs()`, `value.clamp(...)`, `ratio.round()`
 - `native def` declarations for runtime-backed Pyrite modules
 - `return <integer expression>` from `main` and helper functions

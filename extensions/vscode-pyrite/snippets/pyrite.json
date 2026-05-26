@@ -28,6 +28,15 @@
     ],
     "description": "Create a Pyrite class"
   },
+  "enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name}:",
+      "    ${2:ITEM}",
+      "    ${3:OTHER} = ${4:10}"
+    ],
+    "description": "Create a Pyrite enum"
+  },
   "if else": {
     "prefix": "ifelse",
     "body": [
@@ -64,6 +73,47 @@
     ],
     "description": "Create a try/except block"
   },
+  "match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value}:",
+      "    case ${2:TokenKind.IDENT}:",
+      "        ${3:body}",
+      "    case _:",
+      "        ${4:body}"
+    ],
+    "description": "Create a match/case block"
+  },
+  "typed list": {
+    "prefix": "list",
+    "body": [
+      "${1:items}: list[${2:Token}] = []"
+    ],
+    "description": "Create a typed list"
+  },
+  "typed dict": {
+    "prefix": "dict",
+    "body": [
+      "${1:table}: dict[${2:int}] = dict()"
+    ],
+    "description": "Create a typed dictionary"
+  },
+  "string builder": {
+    "prefix": "strbuilder",
+    "body": [
+      "${1:builder}: string_builder = string_builder()",
+      "${1:builder} = ${1:builder}.write(${2:\"text\"})"
+    ],
+    "description": "Create a string builder"
+  },
+  "bytes builder": {
+    "prefix": "bytesbuilder",
+    "body": [
+      "${1:builder}: bytes_builder = bytes_builder()",
+      "${1:builder} = ${1:builder}.push(${2:65})"
+    ],
+    "description": "Create a bytes builder"
+  },
   "file open defer": {
     "prefix": "fileopen",
     "body": [
@@ -74,7 +124,7 @@
   "import stdlib": {
     "prefix": "import",
     "body": [
-      "import ${1|file,net,regex,random,routines,strings,ints,floats,json,xml,vectors|}"
+      "import ${1|file,net,http,regex,random,routines,strings,ints,floats,json,xml,vectors,kernel|}"
     ],
     "description": "Import a Pyrite standard library module"
   }

@@ -2,11 +2,15 @@
   "name": "pyrite-language-support",
   "displayName": "Pyrite Language Support",
   "description": "Syntax highlighting, language server completions, snippets, and compile commands for Pyrite .pyr files.",
-  "version": "0.3.1",
+  "version": "0.3.4",
   "publisher": "pyrite",
   "engines": {
     "vscode": "^1.84.0"
   },
+  "extensionKind": [
+    "workspace",
+    "ui"
+  ],
   "categories": [
     "Programming Languages"
   ],
