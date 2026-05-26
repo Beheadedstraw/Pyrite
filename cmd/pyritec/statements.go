@@ -415,17 +415,18 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 	return nil
 }
 
-func (c *Compiler) emitAssignAST(lineNo int, s string, valueExpr pyriteExpr, immutable bool) error {
-	parts := strings.SplitN(s, "=", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("line %d: invalid assignment", lineNo)
+func (c *Compiler) emitAssignAST(lineNo int, name, annotated string, valueExpr pyriteExpr, immutable bool) error {
+	if name == "" {
+		return fmt.Errorf("line %d: invalid assignment target", lineNo)
 	}
-	target, err := parseBindingTarget(parts[0])
-	if err != nil {
-		return fmt.Errorf("line %d: %w", lineNo, err)
+	annotation := ""
+	if annotated != "" {
+		kind, err := normalizeType(annotated)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		annotation = kind
 	}
-	name := target.name
-	value := strings.TrimSpace(parts[1])
 	if c.consts[name] {
 		return fmt.Errorf("line %d: cannot reassign immutable %s", lineNo, name)
 	}
@@ -433,16 +434,15 @@ func (c *Compiler) emitAssignAST(lineNo int, s string, valueExpr pyriteExpr, imm
 	cName := name
 	if strings.Contains(name, ".") {
 		if _, exists := c.types[name]; !exists {
-			return c.emitMemberAssign(lineNo, name, value)
+			return c.emitMemberAssignAST(lineNo, name, valueExpr)
 		}
 		cName = c.variableCName(name)
 	}
 
-	if strings.HasSuffix(value, ").defer()") {
-		openCall := strings.TrimSuffix(value, ".defer()")
-		code, kind, err := c.expr(openCall)
+	if openExpr, ok := deferredResourceExpr(valueExpr); ok {
+		code, kind, err := c.exprAST(openExpr)
 		if err == nil && isDeferredResource(kind) {
-			if err := checkType(lineNo, name, target.annotated, kind); err != nil {
+			if err := checkType(lineNo, name, annotation, kind); err != nil {
 				return err
 			}
 			if existing := c.types[name]; existing != "" && !typesCompatible(existing, kind) {
@@ -459,12 +459,12 @@ func (c *Compiler) emitAssignAST(lineNo int, s string, valueExpr pyriteExpr, imm
 
 	existingBefore := c.types[name]
 	preReleased := false
-	if existingBefore != "" && c.releasableKind(existingBefore) && existingBefore != "string" && !assignmentValueReferencesName(value, name) {
+	if existingBefore != "" && c.releasableKind(existingBefore) && existingBefore != "string" && !assignmentExprReferencesName(valueExpr, name) {
 		c.emitReleaseValue(cName, existingBefore)
 		preReleased = true
 	}
 
-	checkpoint := c.needsAssignmentCheckpoint(name, value)
+	checkpoint := c.needsAssignmentCheckpointAST(name, valueExpr)
 	checkpointName := ""
 	if checkpoint {
 		checkpointName = fmt.Sprintf("__pyrite_checkpoint_%d", c.nextTempID)
@@ -475,7 +475,7 @@ func (c *Compiler) emitAssignAST(lineNo int, s string, valueExpr pyriteExpr, imm
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
-	if err := checkType(lineNo, name, target.annotated, kind); err != nil {
+	if err := checkType(lineNo, name, annotation, kind); err != nil {
 		return err
 	}
 	existing := c.types[name]
@@ -483,8 +483,8 @@ func (c *Compiler) emitAssignAST(lineNo int, s string, valueExpr pyriteExpr, imm
 		return fmt.Errorf("line %d: cannot assign %s to %s previously inferred as %s", lineNo, kind, name, existing)
 	}
 	storeKind := kind
-	if target.annotated != "" {
-		storeKind = target.annotated
+	if annotation != "" {
+		storeKind = annotation
 	} else if existing != "" {
 		storeKind = existing
 	}
@@ -501,7 +501,7 @@ func (c *Compiler) emitAssignAST(lineNo int, s string, valueExpr pyriteExpr, imm
 	if immutable {
 		c.consts[name] = true
 	}
-	if existing != "" && c.releasableKind(storeKind) && storeKind != "string" && !preReleased && !assignmentValueReferencesName(value, name) {
+	if existing != "" && c.releasableKind(storeKind) && storeKind != "string" && !preReleased && !assignmentExprReferencesName(valueExpr, name) {
 		c.emitReleaseValue(cName, storeKind)
 	}
 	c.types[name] = storeKind
@@ -576,6 +576,80 @@ func (c *Compiler) needsAssignmentCheckpoint(name, value string) bool {
 	}
 	kind := c.types[name]
 	return kind == "string" || kind == "bytes" || isListKind(kind) || isDictKind(kind) || kind == "set" || kind == "string_builder" || kind == "bytes_builder" || kind == "any"
+}
+
+func deferredResourceExpr(expr pyriteExpr) (pyriteExpr, bool) {
+	call, ok := expr.(*pyriteCallExpr)
+	if !ok || len(call.Args) != 0 {
+		return nil, false
+	}
+	member, ok := call.Callee.(*pyriteMemberExpr)
+	if !ok || member.Field != "defer" {
+		return nil, false
+	}
+	return member.Base, true
+}
+
+func assignmentExprReferencesName(expr pyriteExpr, name string) bool {
+	if name == "" || expr == nil {
+		return false
+	}
+	switch node := expr.(type) {
+	case *pyriteNameExpr:
+		return node.Name == name
+	case *pyriteUnaryExpr:
+		return assignmentExprReferencesName(node.Right, name)
+	case *pyriteBinaryExpr:
+		return assignmentExprReferencesName(node.Left, name) || assignmentExprReferencesName(node.Right, name)
+	case *pyriteIndexExpr:
+		return assignmentExprReferencesName(node.Base, name) || assignmentExprReferencesName(node.Index, name)
+	case *pyriteMemberExpr:
+		return assignmentExprReferencesName(node.Base, name)
+	case *pyriteCallExpr:
+		if assignmentExprReferencesName(node.Callee, name) {
+			return true
+		}
+		for _, arg := range node.Args {
+			if assignmentExprReferencesName(arg, name) {
+				return true
+			}
+		}
+	case *pyriteListExpr:
+		for _, item := range node.Items {
+			if assignmentExprReferencesName(item, name) {
+				return true
+			}
+		}
+	case *pyriteObjectExpr:
+		for _, entry := range node.Entries {
+			if assignmentExprReferencesName(entry.Key, name) || assignmentExprReferencesName(entry.Value, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *Compiler) needsAssignmentCheckpointAST(name string, expr pyriteExpr) bool {
+	kind := c.types[name]
+	if kind == "string" || kind == "bytes" || isListKind(kind) || isDictKind(kind) || kind == "set" || kind == "string_builder" || kind == "bytes_builder" || kind == "any" {
+		return true
+	}
+	return assignmentExprMayAllocate(expr)
+}
+
+func assignmentExprMayAllocate(expr pyriteExpr) bool {
+	switch node := expr.(type) {
+	case *pyriteLiteralExpr:
+		return node.Kind == "string"
+	case *pyriteListExpr, *pyriteObjectExpr, *pyriteCallExpr, *pyriteMemberExpr, *pyriteIndexExpr:
+		return true
+	case *pyriteUnaryExpr:
+		return assignmentExprMayAllocate(node.Right)
+	case *pyriteBinaryExpr:
+		return assignmentExprMayAllocate(node.Left) || assignmentExprMayAllocate(node.Right)
+	}
+	return false
 }
 
 func (c *Compiler) releasableKind(kind string) bool {
@@ -1448,6 +1522,59 @@ func (c *Compiler) emitMemberAssign(lineNo int, name, value string) error {
 		return fmt.Errorf("line %d: unsupported member assignment", lineNo)
 	}
 	code, kind, err := c.expr(value)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	switch parts[1] {
+	case "name":
+		if kind != "string" {
+			return fmt.Errorf("line %d: name expects string", lineNo)
+		}
+		c.body.WriteString(fmt.Sprintf("    %s.name = %s; %s.has_name = 1;\n", parts[0], code, parts[0]))
+	case "score":
+		if kind != "int" {
+			return fmt.Errorf("line %d: score expects int", lineNo)
+		}
+		c.body.WriteString(fmt.Sprintf("    %s.score = %s; %s.has_score = 1;\n", parts[0], code, parts[0]))
+	default:
+		return fmt.Errorf("line %d: unsupported member %s", lineNo, parts[1])
+	}
+	return nil
+}
+
+func (c *Compiler) emitMemberAssignAST(lineNo int, name string, value pyriteExpr) error {
+	parts := strings.SplitN(name, ".", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("line %d: unsupported member assignment", lineNo)
+	}
+	if isClassKind(c.types[parts[0]]) {
+		cls := c.classes[classNameFromKind(c.types[parts[0]])]
+		if cls == nil {
+			return fmt.Errorf("line %d: unknown class %s", lineNo, classNameFromKind(c.types[parts[0]]))
+		}
+		fieldKind := cls.fields[parts[1]]
+		code, kind, err := c.exprAST(value)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		if fieldKind == "" {
+			fieldKind = kind
+			cls.fields[parts[1]] = kind
+		}
+		if !typesCompatible(fieldKind, kind) {
+			return fmt.Errorf("line %d: class %s field %s is %s but got %s", lineNo, cls.name, parts[1], fieldKind, kind)
+		}
+		anyCode, err := anyValue(code, kind)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		c.body.WriteString(fmt.Sprintf("    pyrite_class_set(%s, \"%s\", %s);\n", parts[0], parts[1], anyCode))
+		return nil
+	}
+	if c.types[parts[0]] != "object" {
+		return fmt.Errorf("line %d: unsupported member assignment", lineNo)
+	}
+	code, kind, err := c.exprAST(value)
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}

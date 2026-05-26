@@ -634,9 +634,9 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 			return fmt.Errorf("line %d: unsupported control statement %q", base.Line, base.Text)
 		}
 	case *pyriteVarStmt:
-		return c.emitAssignAST(base.Line, base.Text, node.Value, false)
+		return c.emitAssignAST(base.Line, node.Name, node.Type, node.Value, false)
 	case *pyriteAssignStmt:
-		return c.emitAssignAST(base.Line, base.Text, node.Value, false)
+		return c.emitAssignAST(base.Line, node.Target, "", node.Value, false)
 	case *pyriteExprStmt:
 		return c.emitExprStmtAST(base.Line, node.Expr)
 	default:
