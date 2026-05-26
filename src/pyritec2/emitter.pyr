@@ -3,6 +3,7 @@ import lexer
 class EmitState:
     def __init__(self):
         self.out = ""
+        self.declared = "|"
         self.in_main = False
         self.saw_main = False
         self.emitted_return = False
@@ -12,6 +13,13 @@ class EmitState:
 
     def text(self):
         return self.out
+
+    def has_declared(self, name: string):
+        marker: string = "|" + name + "|"
+        return self.declared.contains(marker)
+
+    def mark_declared(self, name: string):
+        self.declared = self.declared + name + "|"
 
 def emit_header(state: emitter.EmitState):
     state.write("#include <stdio.h>\n")
@@ -60,13 +68,30 @@ def emit_int_decl(state: emitter.EmitState, line: string):
             state.write(" = ")
             state.write(value)
             state.write(";\n")
+            state.mark_declared(name)
+
+def emit_const_decl(state: emitter.EmitState, line: string):
+    equals: int = line.find("=")
+    if equals >= 0:
+        name: string = line.slice(6, equals).strip()
+        value: string = line.slice(equals + 1, line.len()).strip()
+        state.write("    const long ")
+        state.write(name)
+        state.write(" = ")
+        state.write(value)
+        state.write(";\n")
+        state.mark_declared(name)
 
 def emit_assignment(state: emitter.EmitState, line: string):
     equals: int = line.find("=")
     if equals >= 0:
         name: string = line.slice(0, equals).strip()
         value: string = line.slice(equals + 1, line.len()).strip()
-        state.write("    ")
+        if not state.has_declared(name):
+            state.write("    long ")
+            state.mark_declared(name)
+        else:
+            state.write("    ")
         state.write(name)
         state.write(" = ")
         state.write(value)
@@ -79,21 +104,27 @@ def compile_source(source: string):
     while not cursor.done():
         raw: string = cursor.next_line()
         line: string = raw.strip()
-        if line.startswith("def main("):
-            emit_main_open(state)
+        if line.startswith("import "):
+            state.write("")
         else:
-            if state.in_main:
-                if line.startswith("print("):
-                    emit_print(state, line)
-                else:
-                    if line.startswith("return "):
-                        emit_return(state, line)
+            if line.startswith("def main("):
+                emit_main_open(state)
+            else:
+                if state.in_main:
+                    if line.startswith("print("):
+                        emit_print(state, line)
                     else:
-                        if line.contains(": int ="):
-                            emit_int_decl(state, line)
+                        if line.startswith("return "):
+                            emit_return(state, line)
                         else:
-                            if line.contains("="):
-                                emit_assignment(state, line)
+                            if line.startswith("const "):
+                                emit_const_decl(state, line)
+                            else:
+                                if line.contains(": int ="):
+                                    emit_int_decl(state, line)
+                                else:
+                                    if line.contains("="):
+                                        emit_assignment(state, line)
     emit_main_close(state)
     if not state.saw_main:
         return ""
