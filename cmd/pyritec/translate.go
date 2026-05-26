@@ -531,7 +531,7 @@ func (c *Compiler) compileASTStatements(stmts []pyriteStmt, baseIndent int) erro
 		if _, ok := stmt.(*pyriteControlStmt); ok && stmt.stmtBase().Text == "else:" {
 			return fmt.Errorf("line %d: else without if", stmt.stmtBase().Line)
 		}
-		if _, ok := stmt.(*pyriteControlStmt); ok && isExceptHeader(stmt.stmtBase().Text) {
+		if _, ok := stmt.(*pyriteExceptStmt); ok {
 			return fmt.Errorf("line %d: except without try", stmt.stmtBase().Line)
 		}
 		if ifStmt, ok := stmt.(*pyriteIfStmt); ok && len(ifStmt.Children) > 0 {
@@ -644,7 +644,7 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 	}
 	if len(base.Children) == 0 {
 		switch stmt.(type) {
-		case *pyriteIfStmt, *pyriteWhileStmt, *pyriteForStmt, *pyriteMatchStmt, *pyriteCaseStmt, *pyriteControlStmt:
+		case *pyriteIfStmt, *pyriteWhileStmt, *pyriteForStmt, *pyriteMatchStmt, *pyriteCaseStmt, *pyriteControlStmt, *pyriteExceptStmt:
 			return c.closeBlock(base.Line)
 		}
 		return nil
@@ -702,7 +702,7 @@ func (c *Compiler) compileIfAST(stmt *pyriteIfStmt, elseStmt pyriteStmt) error {
 	return c.closeBlock(base.Line)
 }
 
-func (c *Compiler) compileTryAST(stmt *pyriteControlStmt, exceptStmt pyriteStmt) error {
+func (c *Compiler) compileTryAST(stmt *pyriteControlStmt, exceptStmt *pyriteExceptStmt) error {
 	base := stmt.stmtBase()
 	if err := c.emitTryHeaderAST(base.Indent); err != nil {
 		return err
@@ -714,7 +714,7 @@ func (c *Compiler) compileTryAST(stmt *pyriteControlStmt, exceptStmt pyriteStmt)
 		return c.closeBlock(base.Line)
 	}
 	exceptBase := exceptStmt.stmtBase()
-	if err := c.emitExceptHeaderAST(exceptBase.Line, exceptBase.Text); err != nil {
+	if err := c.emitExceptHeaderAST(exceptBase.Line, exceptStmt.Name); err != nil {
 		return err
 	}
 	if err := c.compileASTStatements(exceptBase.Children, c.mainIndent); err != nil {
@@ -734,19 +734,15 @@ func followingElse(stmts []pyriteStmt, index int) (pyriteStmt, bool) {
 	return nil, false
 }
 
-func followingExcept(stmts []pyriteStmt, index int) (pyriteStmt, bool) {
+func followingExcept(stmts []pyriteStmt, index int) (*pyriteExceptStmt, bool) {
 	if index+1 >= len(stmts) {
 		return nil, false
 	}
-	_, ok := stmts[index+1].(*pyriteControlStmt)
-	if ok && isExceptHeader(stmts[index+1].stmtBase().Text) {
-		return stmts[index+1], true
+	stmt, ok := stmts[index+1].(*pyriteExceptStmt)
+	if ok {
+		return stmt, true
 	}
 	return nil, false
-}
-
-func isExceptHeader(s string) bool {
-	return s == "except:" || (strings.HasPrefix(s, "except ") && strings.HasSuffix(s, ":"))
 }
 
 func (c *Compiler) closeBlock(lineNo int) error {

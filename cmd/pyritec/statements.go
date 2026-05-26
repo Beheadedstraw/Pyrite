@@ -88,15 +88,11 @@ func (c *Compiler) emitTryHeaderAST(indent int) error {
 	return nil
 }
 
-func (c *Compiler) emitExceptHeaderAST(lineNo int, header string) error {
+func (c *Compiler) emitExceptHeaderAST(lineNo int, name string) error {
 	if len(c.blockStack) == 0 || c.blockStack[len(c.blockStack)-1].kind != "try" {
 		return fmt.Errorf("line %d: except without try", lineNo)
 	}
 	top := c.blockStack[len(c.blockStack)-1]
-	name, err := parseExceptName(header)
-	if err != nil {
-		return fmt.Errorf("line %d: %w", lineNo, err)
-	}
 	c.body.WriteString(fmt.Sprintf("    goto __pyrite_after_try_%d;\n", top.tryID))
 	c.body.WriteString(fmt.Sprintf("__pyrite_except_%d:\n", top.tryID))
 	c.body.WriteString("    ;\n")
@@ -850,20 +846,6 @@ func (c *Compiler) variableCName(name string) string {
 
 func sanitizeCName(name string) string {
 	return strings.NewReplacer(".", "_").Replace(name)
-}
-
-func parseExceptName(s string) (string, error) {
-	if s == "except:" {
-		return "", nil
-	}
-	name := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(s, "except ")), ":")
-	if name == "" {
-		return "", fmt.Errorf("except name cannot be empty")
-	}
-	if strings.ContainsAny(name, " \t") {
-		return "", fmt.Errorf("unsupported except syntax")
-	}
-	return name, nil
 }
 
 func (c *Compiler) activeTry() (int, bool) {

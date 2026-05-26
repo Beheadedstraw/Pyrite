@@ -147,6 +147,13 @@ type pyriteControlStmt struct {
 
 func (*pyriteControlStmt) stmtNode() {}
 
+type pyriteExceptStmt struct {
+	pyriteStmtBase
+	Name string
+}
+
+func (*pyriteExceptStmt) stmtNode() {}
+
 type pyriteVarStmt struct {
 	pyriteStmtBase
 	Name  string

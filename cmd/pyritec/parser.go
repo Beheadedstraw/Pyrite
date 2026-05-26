@@ -431,8 +431,12 @@ func parsePyriteStatementTokens(tokens []pyriteToken, line, indent int) (pyriteS
 	case "default", "else", "try":
 		return &pyriteControlStmt{pyriteStmtBase: base, Kind: first}, nil
 	case "except":
-		if len(trimTrailingColon(tokens[1:])) <= 1 {
-			return &pyriteControlStmt{pyriteStmtBase: base, Kind: first}, nil
+		nameTokens := trimTrailingColon(tokens[1:])
+		if len(nameTokens) == 0 {
+			return &pyriteExceptStmt{pyriteStmtBase: base}, nil
+		}
+		if len(nameTokens) == 1 && nameTokens[0].Type == tokenIdentifier {
+			return &pyriteExceptStmt{pyriteStmtBase: base, Name: nameTokens[0].Lexeme}, nil
 		}
 		return nil, fmt.Errorf("line %d:%d: invalid except header", tokens[0].Line, tokens[0].Column)
 	case "for":
