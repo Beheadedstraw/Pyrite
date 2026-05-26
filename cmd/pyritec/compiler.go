@@ -51,20 +51,12 @@ type block struct {
 	postCleanups []string
 }
 
-type sourceLine struct {
-	lineNo  int
-	raw     string
-	trimmed string
-	indent  int
-}
-
 type functionDef struct {
 	name         string
 	params       []string
 	paramTypes   map[string]string
 	returnType   string
 	indent       int
-	body         []sourceLine
 	astBody      []pyriteStmt
 	nativeSymbol string
 }

@@ -170,8 +170,8 @@ def main():
 	if compiler.functions["helper"] == nil || compiler.functions["main"] == nil {
 		t.Fatalf("expected functions from AST collector, got %#v", compiler.functions)
 	}
-	if got := compiler.functions["helper"].body[0].trimmed; got != "return value" {
-		t.Fatalf("expected reconstructed source line, got %q", got)
+	if _, ok := compiler.functions["helper"].astBody[0].(*pyriteReturnStmt); !ok {
+		t.Fatalf("expected AST return statement, got %#v", compiler.functions["helper"].astBody[0])
 	}
 }
 

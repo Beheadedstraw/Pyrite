@@ -153,7 +153,6 @@ func functionFromAST(decl *pyriteFunctionDecl, moduleName, className string) (*f
 		name:         name,
 		paramTypes:   map[string]string{},
 		indent:       decl.Indent,
-		body:         sourceLinesFromStmts(decl.Body),
 		astBody:      decl.Body,
 		nativeSymbol: decl.NativeSymbol,
 	}
@@ -181,21 +180,6 @@ func functionFromAST(decl *pyriteFunctionDecl, moduleName, className string) (*f
 		}
 	}
 	return fn, nil
-}
-
-func sourceLinesFromStmts(stmts []pyriteStmt) []sourceLine {
-	var lines []sourceLine
-	for _, stmt := range stmts {
-		base := stmt.stmtBase()
-		lines = append(lines, sourceLine{
-			lineNo:  base.Line,
-			raw:     strings.Repeat(" ", base.Indent) + base.Text,
-			trimmed: base.Text,
-			indent:  base.Indent,
-		})
-		lines = append(lines, sourceLinesFromStmts(base.Children)...)
-	}
-	return lines
 }
 
 func bindingSource(decl *pyriteBindingDecl) string {
@@ -546,10 +530,7 @@ func (c *Compiler) compileFunction(fn *functionDef) error {
 }
 
 func (c *Compiler) compileFunctionBody(fn *functionDef) error {
-	if len(fn.astBody) > 0 {
-		return c.compileASTStatements(fn.astBody, fn.indent)
-	}
-	return c.compileLines(fn.body, fn.indent)
+	return c.compileASTStatements(fn.astBody, fn.indent)
 }
 
 func (c *Compiler) compileASTStatements(stmts []pyriteStmt, baseIndent int) error {
@@ -594,12 +575,12 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 	switch node := stmt.(type) {
 	case *pyriteReturnStmt:
 		if node.Value == nil {
-			return c.emitStatement(base.Line, base.Indent, base.Text)
+			return fmt.Errorf("line %d: return expects a value", base.Line)
 		}
 		return c.emitReturnExpr(base.Line, node.Value)
 	case *pyriteRaiseStmt:
 		if node.Value == nil {
-			return c.emitStatement(base.Line, base.Indent, base.Text)
+			return fmt.Errorf("line %d: raise expects a value", base.Line)
 		}
 		return c.emitRaiseExpr(base.Line, node.Value)
 	case *pyriteIfStmt:
@@ -659,9 +640,7 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 				return err
 			}
 		default:
-			if err := c.emitStatement(base.Line, base.Indent, base.Text); err != nil {
-				return err
-			}
+			return fmt.Errorf("line %d: unsupported control statement %q", base.Line, base.Text)
 		}
 	case *pyriteVarStmt:
 		return c.emitAssignAST(base.Line, base.Text, node.Value, false)
@@ -670,9 +649,7 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 	case *pyriteExprStmt:
 		return c.emitExprStmtAST(base.Line, node.Expr)
 	default:
-		if err := c.emitStatement(base.Line, base.Indent, base.Text); err != nil {
-			return err
-		}
+		return fmt.Errorf("line %d: unsupported statement %q", base.Line, base.Text)
 	}
 	if len(base.Children) == 0 {
 		switch stmt.(type) {
@@ -777,63 +754,8 @@ func followingExcept(stmts []pyriteStmt, index int) (pyriteStmt, bool) {
 	return nil, false
 }
 
-func (c *Compiler) compileLines(lines []sourceLine, baseIndent int) error {
-	c.mainIndent = baseIndent
-	for _, line := range lines {
-		if err := c.closeBlocksForLine(line.lineNo, line.indent, line.trimmed); err != nil {
-			return err
-		}
-		if err := c.emitStatement(line.lineNo, line.indent, line.trimmed); err != nil {
-			return err
-		}
-	}
-	for len(c.blockStack) > 0 {
-		if err := c.closeBlock(linesLastLine(lines)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func linesLastLine(lines []sourceLine) int {
-	if len(lines) == 0 {
-		return 0
-	}
-	return lines[len(lines)-1].lineNo
-}
-
-func (c *Compiler) closeBlocksForLine(lineNo, indent int, trimmed string) error {
-	for len(c.blockStack) > 0 {
-		top := c.blockStack[len(c.blockStack)-1]
-		if indent > top.indent {
-			return nil
-		}
-		if indent == top.indent && top.kind == "case" && isCaseHeader(trimmed) {
-			if err := c.closeBlock(lineNo); err != nil {
-				return err
-			}
-			continue
-		}
-		if indent == top.indent && continuesBlock(trimmed, top.kind) {
-			return nil
-		}
-		if err := c.closeBlock(lineNo); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func continuesBlock(trimmed, kind string) bool {
-	return (kind == "if" && trimmed == "else:") || (kind == "try" && isExceptHeader(trimmed))
-}
-
 func isExceptHeader(s string) bool {
 	return s == "except:" || (strings.HasPrefix(s, "except ") && strings.HasSuffix(s, ":"))
-}
-
-func isCaseHeader(s string) bool {
-	return (strings.HasPrefix(s, "case ") && strings.HasSuffix(s, ":")) || s == "default:"
 }
 
 func (c *Compiler) closeBlock(lineNo int) error {
