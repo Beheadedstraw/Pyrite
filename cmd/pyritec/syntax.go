@@ -55,7 +55,15 @@ func normalizeType(raw string) (string, error) {
 		return "list_int", nil
 	case "list[any]", "list_any":
 		return "list_any", nil
-	case "dict", "object":
+	case "dict", "map":
+		return "dict", nil
+	case "set":
+		return "set", nil
+	case "stringbuilder", "string_builder":
+		return "string_builder", nil
+	case "bytesbuilder", "bytes_builder":
+		return "bytes_builder", nil
+	case "object":
 		return "object", nil
 	default:
 		return "", fmt.Errorf("unsupported type annotation %q", strings.TrimSpace(raw))

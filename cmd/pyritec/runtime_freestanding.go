@@ -8,12 +8,22 @@ const runtimeFreestandingC = `
 typedef struct {
     long *items;
     size_t len;
+    size_t cap;
 } PyriteList;
 
 typedef struct {
     unsigned char *items;
     size_t len;
+    size_t cap;
 } PyriteBytes;
+
+typedef struct {
+    char *items;
+    size_t len;
+    size_t cap;
+} PyriteStringBuilder;
+
+typedef PyriteBytes PyriteBytesBuilder;
 
 typedef enum {
     PYRITE_ANY_INT,
@@ -37,7 +47,29 @@ typedef struct {
 typedef struct {
     PyriteAny *items;
     size_t len;
+    size_t cap;
 } PyriteAnyList;
+
+typedef struct {
+    char *key;
+    PyriteAny value;
+} PyriteDictEntry;
+
+typedef struct {
+    PyriteDictEntry *entries;
+    size_t len;
+    size_t cap;
+} PyriteDict;
+
+typedef struct {
+    char **items;
+    size_t len;
+    size_t cap;
+} PyriteSet;
+
+static PyriteAny pyrite_any_clone(PyriteAny value);
+static void pyrite_release_any(PyriteAny *value);
+static char *pyrite_any_string(PyriteAny value);
 
 typedef struct {
     char *name;
@@ -364,6 +396,251 @@ static char *pyrite_bytes_to_string(PyriteBytes value) {
     return out;
 }
 
+static PyriteList pyrite_list_int_copy(PyriteList list) {
+    PyriteList out = {0};
+    if (list.len == 0) return out;
+    out.items = pyrite_malloc(sizeof(long) * list.len);
+    if (!out.items) return out;
+    out.len = list.len;
+    out.cap = list.len;
+    pyrite_memcpy(out.items, list.items, sizeof(long) * list.len);
+    return out;
+}
+
+static long pyrite_list_int_len(PyriteList list) { return (long)list.len; }
+static long pyrite_list_int_get(PyriteList list, long index) {
+    if (index < 0 || (size_t)index >= list.len || !list.items) return 0;
+    return list.items[index];
+}
+static long pyrite_list_int_peek(PyriteList list) {
+    if (list.len == 0 || !list.items) return 0;
+    return list.items[list.len - 1];
+}
+static PyriteList pyrite_list_int_push(PyriteList list, long value) {
+    PyriteList out = pyrite_list_int_copy(list);
+    size_t next_len = out.len + 1;
+    long *items = pyrite_malloc(sizeof(long) * next_len);
+    if (!items) return out;
+    if (out.items && out.len) pyrite_memcpy(items, out.items, sizeof(long) * out.len);
+    items[out.len] = value;
+    out.items = items;
+    out.len = next_len;
+    out.cap = next_len;
+    return out;
+}
+static PyriteList pyrite_list_int_set(PyriteList list, long index, long value) {
+    PyriteList out = pyrite_list_int_copy(list);
+    if (index >= 0 && (size_t)index < out.len) out.items[index] = value;
+    return out;
+}
+static PyriteList pyrite_list_int_pop(PyriteList list) {
+    PyriteList out = {0};
+    if (list.len == 0) return out;
+    out.len = list.len - 1;
+    out.cap = out.len;
+    if (out.len == 0) return out;
+    out.items = pyrite_malloc(sizeof(long) * out.len);
+    if (!out.items) return (PyriteList){0};
+    pyrite_memcpy(out.items, list.items, sizeof(long) * out.len);
+    return out;
+}
+
+static PyriteAnyList pyrite_list_any_copy(PyriteAnyList list) {
+    PyriteAnyList out = {0};
+    if (list.len == 0) return out;
+    out.items = pyrite_malloc(sizeof(PyriteAny) * list.len);
+    if (!out.items) return out;
+    out.len = list.len;
+    out.cap = list.len;
+    for (size_t i = 0; i < list.len; i++) out.items[i] = pyrite_any_clone(list.items[i]);
+    return out;
+}
+static long pyrite_list_any_len(PyriteAnyList list) { return (long)list.len; }
+static PyriteAny pyrite_list_any_get(PyriteAnyList list, long index) {
+    if (index < 0 || (size_t)index >= list.len || !list.items) return (PyriteAny){.kind=PYRITE_ANY_INT, .as.i=0};
+    return list.items[index];
+}
+static PyriteAny pyrite_list_any_peek(PyriteAnyList list) {
+    if (list.len == 0 || !list.items) return (PyriteAny){.kind=PYRITE_ANY_INT, .as.i=0};
+    return list.items[list.len - 1];
+}
+static PyriteAnyList pyrite_list_any_push(PyriteAnyList list, PyriteAny value) {
+    PyriteAnyList out = pyrite_list_any_copy(list);
+    size_t next_len = out.len + 1;
+    PyriteAny *items = pyrite_malloc(sizeof(PyriteAny) * next_len);
+    if (!items) return out;
+    for (size_t i = 0; i < out.len; i++) items[i] = out.items[i];
+    items[out.len] = pyrite_any_clone(value);
+    out.items = items;
+    out.len = next_len;
+    out.cap = next_len;
+    return out;
+}
+static PyriteAnyList pyrite_list_any_set(PyriteAnyList list, long index, PyriteAny value) {
+    PyriteAnyList out = pyrite_list_any_copy(list);
+    if (index >= 0 && (size_t)index < out.len) {
+        pyrite_release_any(&out.items[index]);
+        out.items[index] = pyrite_any_clone(value);
+    }
+    return out;
+}
+static PyriteAnyList pyrite_list_any_pop(PyriteAnyList list) {
+    PyriteAnyList out = {0};
+    if (list.len == 0) return out;
+    out.len = list.len - 1;
+    out.cap = out.len;
+    if (out.len == 0) return out;
+    out.items = pyrite_malloc(sizeof(PyriteAny) * out.len);
+    if (!out.items) return (PyriteAnyList){0};
+    for (size_t i = 0; i < out.len; i++) out.items[i] = pyrite_any_clone(list.items[i]);
+    return out;
+}
+
+static PyriteDict pyrite_dict_new(void) { return (PyriteDict){0}; }
+static long pyrite_dict_len(PyriteDict dict) { return (long)dict.len; }
+static long pyrite_dict_find(PyriteDict dict, const char *key) {
+    if (!key) key = "";
+    for (size_t i = 0; i < dict.len; i++) if (dict.entries[i].key && strcmp(dict.entries[i].key, key) == 0) return (long)i;
+    return -1;
+}
+static PyriteDict pyrite_dict_copy(PyriteDict dict) {
+    PyriteDict out = {0};
+    if (dict.len == 0) return out;
+    out.entries = pyrite_calloc(dict.len, sizeof(PyriteDictEntry));
+    if (!out.entries) return out;
+    out.len = dict.len;
+    out.cap = dict.len;
+    for (size_t i = 0; i < dict.len; i++) {
+        out.entries[i].key = pyrite_promote_string(dict.entries[i].key);
+        out.entries[i].value = pyrite_any_clone(dict.entries[i].value);
+    }
+    return out;
+}
+static int pyrite_dict_has(PyriteDict dict, const char *key) { return pyrite_dict_find(dict, key) >= 0; }
+static PyriteAny pyrite_dict_get(PyriteDict dict, const char *key) {
+    long index = pyrite_dict_find(dict, key);
+    if (index < 0) return (PyriteAny){.kind=PYRITE_ANY_INT, .as.i=0};
+    return dict.entries[index].value;
+}
+static char *pyrite_dict_get_string(PyriteDict dict, const char *key) { return pyrite_any_string(pyrite_dict_get(dict, key)); }
+static long pyrite_dict_get_int(PyriteDict dict, const char *key) {
+    PyriteAny value = pyrite_dict_get(dict, key);
+    if (value.kind == PYRITE_ANY_INT) return value.as.i;
+    if (value.kind == PYRITE_ANY_BOOL) return value.as.b;
+    if (value.kind == PYRITE_ANY_FLOAT) return (long)value.as.f;
+    return 0;
+}
+static PyriteDict pyrite_dict_set(PyriteDict dict, const char *key, PyriteAny value) {
+    PyriteDict out = pyrite_dict_copy(dict);
+    long index = pyrite_dict_find(out, key);
+    if (index >= 0) {
+        pyrite_release_any(&out.entries[index].value);
+        out.entries[index].value = pyrite_any_clone(value);
+        return out;
+    }
+    PyriteDictEntry *entries = pyrite_calloc(out.len + 1, sizeof(PyriteDictEntry));
+    if (!entries) return out;
+    for (size_t i = 0; i < out.len; i++) entries[i] = out.entries[i];
+    entries[out.len].key = pyrite_promote_string(key);
+    entries[out.len].value = pyrite_any_clone(value);
+    out.entries = entries;
+    out.len++;
+    out.cap = out.len;
+    return out;
+}
+static PyriteDict pyrite_dict_remove(PyriteDict dict, const char *key) {
+    long drop = pyrite_dict_find(dict, key);
+    if (drop < 0) return pyrite_dict_copy(dict);
+    PyriteDict out = {0};
+    if (dict.len <= 1) return out;
+    out.entries = pyrite_calloc(dict.len - 1, sizeof(PyriteDictEntry));
+    if (!out.entries) return out;
+    out.len = dict.len - 1;
+    out.cap = out.len;
+    size_t j = 0;
+    for (size_t i = 0; i < dict.len; i++) {
+        if ((long)i == drop) continue;
+        out.entries[j].key = pyrite_promote_string(dict.entries[i].key);
+        out.entries[j].value = pyrite_any_clone(dict.entries[i].value);
+        j++;
+    }
+    return out;
+}
+static void pyrite_release_dict(PyriteDict *dict) {
+    (void)dict;
+}
+
+static PyriteSet pyrite_set_new(void) { return (PyriteSet){0}; }
+static long pyrite_set_len(PyriteSet set) { return (long)set.len; }
+static long pyrite_set_find(PyriteSet set, const char *value) {
+    if (!value) value = "";
+    for (size_t i = 0; i < set.len; i++) if (set.items[i] && strcmp(set.items[i], value) == 0) return (long)i;
+    return -1;
+}
+static int pyrite_set_has(PyriteSet set, const char *value) { return pyrite_set_find(set, value) >= 0; }
+static PyriteSet pyrite_set_copy(PyriteSet set) {
+    PyriteSet out = {0};
+    if (set.len == 0) return out;
+    out.items = pyrite_calloc(set.len, sizeof(char *));
+    if (!out.items) return out;
+    out.len = set.len;
+    out.cap = set.len;
+    for (size_t i = 0; i < set.len; i++) out.items[i] = pyrite_promote_string(set.items[i]);
+    return out;
+}
+static PyriteSet pyrite_set_add(PyriteSet set, const char *value) {
+    if (pyrite_set_has(set, value)) return pyrite_set_copy(set);
+    PyriteSet out = pyrite_set_copy(set);
+    char **items = pyrite_calloc(out.len + 1, sizeof(char *));
+    if (!items) return out;
+    for (size_t i = 0; i < out.len; i++) items[i] = out.items[i];
+    items[out.len] = pyrite_promote_string(value);
+    out.items = items;
+    out.len++;
+    out.cap = out.len;
+    return out;
+}
+static PyriteSet pyrite_set_remove(PyriteSet set, const char *value) {
+    long drop = pyrite_set_find(set, value);
+    if (drop < 0) return pyrite_set_copy(set);
+    PyriteSet out = {0};
+    if (set.len <= 1) return out;
+    out.items = pyrite_calloc(set.len - 1, sizeof(char *));
+    if (!out.items) return out;
+    out.len = set.len - 1;
+    out.cap = out.len;
+    size_t j = 0;
+    for (size_t i = 0; i < set.len; i++) if ((long)i != drop) out.items[j++] = pyrite_promote_string(set.items[i]);
+    return out;
+}
+static void pyrite_release_set(PyriteSet *set) { (void)set; }
+
+static PyriteStringBuilder pyrite_string_builder_new(void) { return (PyriteStringBuilder){0}; }
+static long pyrite_string_builder_len(PyriteStringBuilder builder) { return (long)builder.len; }
+static PyriteStringBuilder pyrite_string_builder_write(PyriteStringBuilder builder, const char *value) {
+    if (!value) value = "";
+    size_t n = pyrite_strlen(value);
+    PyriteStringBuilder out = {0};
+    out.len = builder.len + n;
+    out.cap = out.len;
+    out.items = pyrite_malloc(out.len + 1);
+    if (!out.items) return out;
+    if (builder.items && builder.len) pyrite_memcpy(out.items, builder.items, builder.len);
+    pyrite_memcpy(out.items + builder.len, value, n);
+    out.items[out.len] = '\0';
+    return out;
+}
+static char *pyrite_string_builder_string(PyriteStringBuilder builder) {
+    if (!builder.items) return "";
+    return pyrite_promote_string(builder.items);
+}
+
+static PyriteBytesBuilder pyrite_bytes_builder_new(void) { return (PyriteBytesBuilder){0}; }
+static long pyrite_bytes_builder_len(PyriteBytesBuilder builder) { return (long)builder.len; }
+static PyriteBytesBuilder pyrite_bytes_builder_write(PyriteBytesBuilder builder, PyriteBytes value) { return pyrite_bytes_concat(builder, value); }
+static PyriteBytesBuilder pyrite_bytes_builder_push(PyriteBytesBuilder builder, long value) { return pyrite_bytes_push(builder, value); }
+static PyriteBytes pyrite_bytes_builder_bytes(PyriteBytesBuilder builder) { return pyrite_bytes_copy(builder); }
+
 static char *pyrite_last_error_or(const char *fallback) {
     return pyrite_last_error[0] ? pyrite_last_error : (char *)(fallback ? fallback : "runtime error");
 }
@@ -520,12 +797,52 @@ static char *pyrite_bytes_string(PyriteBytes *bytes) {
     return buf;
 }
 
+static char *pyrite_dict_string(PyriteDict *dict) {
+    char *buf = pyrite_temp_alloc(512);
+    char *cursor = buf;
+    char *end = buf ? buf + 512 : NULL;
+    if (!buf) return "";
+    pyrite_append_char(&cursor, end, '{');
+    for (size_t i = 0; dict && i < dict->len; i++) {
+        if (i) pyrite_append_str(&cursor, end, ", ");
+        pyrite_append_str(&cursor, end, dict->entries[i].key ? dict->entries[i].key : "");
+        pyrite_append_str(&cursor, end, ": ");
+        pyrite_append_str(&cursor, end, pyrite_any_string(dict->entries[i].value));
+    }
+    pyrite_append_char(&cursor, end, '}');
+    return buf;
+}
+
+static char *pyrite_set_string(PyriteSet *set) {
+    char *buf = pyrite_temp_alloc(512);
+    char *cursor = buf;
+    char *end = buf ? buf + 512 : NULL;
+    if (!buf) return "";
+    pyrite_append_str(&cursor, end, "set[");
+    for (size_t i = 0; set && i < set->len; i++) {
+        if (i) pyrite_append_str(&cursor, end, ", ");
+        pyrite_append_str(&cursor, end, set->items[i] ? set->items[i] : "");
+    }
+    pyrite_append_char(&cursor, end, ']');
+    return buf;
+}
+
 static void pyrite_print_any(PyriteAny value) {
     pyrite_print_str(pyrite_any_string(value));
 }
 
 static void pyrite_release_any(PyriteAny *value) {
     (void)value;
+}
+
+static PyriteAny pyrite_any_clone(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_STRING) {
+        return (PyriteAny){.kind=PYRITE_ANY_STRING, .as.s=pyrite_promote_string(value.as.s)};
+    }
+    if (value.kind == PYRITE_ANY_BYTES) {
+        return (PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(value.as.bytes)};
+    }
+    return value;
 }
 
 static void pyrite_release_any_list(PyriteAnyList *list) {
@@ -538,6 +855,7 @@ static PyriteList pyrite_list_int_new(long *items, long len) {
     list.items = pyrite_malloc(sizeof(long) * (size_t)len);
     if (!list.items) return list;
     list.len = (size_t)len;
+    list.cap = (size_t)len;
     pyrite_memcpy(list.items, items, sizeof(long) * (size_t)len);
     return list;
 }
@@ -548,6 +866,7 @@ static PyriteAnyList pyrite_list_any_new(PyriteAny *items, long len) {
     list.items = pyrite_malloc(sizeof(PyriteAny) * (size_t)len);
     if (!list.items) return list;
     list.len = (size_t)len;
+    list.cap = (size_t)len;
     pyrite_memcpy(list.items, items, sizeof(PyriteAny) * (size_t)len);
     return list;
 }
@@ -558,6 +877,7 @@ static PyriteAnyList pyrite_list_int_to_any(PyriteList list) {
     out.items = pyrite_malloc(sizeof(PyriteAny) * list.len);
     if (!out.items) return out;
     out.len = list.len;
+    out.cap = list.len;
     for (size_t i = 0; i < list.len; i++) {
         out.items[i] = (PyriteAny){.kind=PYRITE_ANY_INT, .as.i=list.items[i]};
     }

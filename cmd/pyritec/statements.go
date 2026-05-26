@@ -268,7 +268,7 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 	if immutable {
 		c.consts[name] = true
 	}
-	if existing != "" && c.releasableKind(storeKind) && storeKind != "string" && !preReleased {
+	if existing != "" && c.releasableKind(storeKind) && storeKind != "string" && !preReleased && !assignmentValueReferencesName(value, name) {
 		c.emitReleaseValue(cName, storeKind)
 	}
 	c.types[name] = storeKind
@@ -287,6 +287,9 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_any_list(%s, &%s);\n", checkpointName, cName))
 		} else if storeKind == "bytes" {
 			c.body.WriteString(fmt.Sprintf("    pyrite_release_since(%s, %s.items);\n", checkpointName, cName))
+		} else if storeKind == "dict" || storeKind == "set" {
+			c.body.WriteString(fmt.Sprintf("    (void)%s;\n", checkpointName))
+			c.body.WriteString("    /* dict/set values keep nested allocations for now. */\n")
 		} else if isClassKind(storeKind) {
 			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_class_object(%s, %s);\n", checkpointName, cName))
 		} else {
@@ -338,15 +341,15 @@ func (c *Compiler) needsAssignmentCheckpoint(name, value string) bool {
 	if strings.Contains(value, "\"") || strings.Contains(value, ".") || strings.Contains(value, "f\"") || strings.Contains(value, "[") {
 		return true
 	}
-	return c.types[name] == "string" || c.types[name] == "bytes" || c.types[name] == "list_any" || c.types[name] == "any"
+	return c.types[name] == "string" || c.types[name] == "bytes" || c.types[name] == "list_any" || c.types[name] == "dict" || c.types[name] == "set" || c.types[name] == "string_builder" || c.types[name] == "bytes_builder" || c.types[name] == "any"
 }
 
 func (c *Compiler) releasableKind(kind string) bool {
-	return kind == "string" || kind == "bytes" || kind == "list_int" || kind == "list_any" || kind == "any"
+	return kind == "string" || kind == "bytes" || kind == "list_int" || kind == "list_any" || kind == "dict" || kind == "set" || kind == "string_builder" || kind == "bytes_builder" || kind == "any"
 }
 
 func (c *Compiler) blockScopedReleasableKind(kind string) bool {
-	return kind == "string" || kind == "bytes" || kind == "list_int" || kind == "list_any"
+	return kind == "string" || kind == "bytes" || kind == "list_int" || kind == "list_any" || kind == "dict" || kind == "set" || kind == "string_builder" || kind == "bytes_builder"
 }
 
 func (c *Compiler) registerBlockCleanup(name, kind string) {
@@ -363,6 +366,12 @@ func (c *Compiler) registerBlockCleanup(name, kind string) {
 		cleanup = fmt.Sprintf("    pyrite_release(%s.items);\n", name)
 	case "list_any":
 		cleanup = fmt.Sprintf("    pyrite_release_any_list(&%s);\n", name)
+	case "dict":
+		cleanup = fmt.Sprintf("    pyrite_release_dict(&%s);\n", name)
+	case "set":
+		cleanup = fmt.Sprintf("    pyrite_release_set(&%s);\n", name)
+	case "string_builder", "bytes_builder":
+		cleanup = fmt.Sprintf("    pyrite_release(%s.items);\n", name)
 	}
 	if cleanup == "" {
 		return
@@ -381,6 +390,12 @@ func (c *Compiler) emitReleaseValue(name, kind string) {
 		c.body.WriteString(fmt.Sprintf("    pyrite_release(%s.items);\n", name))
 	case "list_any":
 		c.body.WriteString(fmt.Sprintf("    pyrite_release_any_list(&%s);\n", name))
+	case "dict":
+		c.body.WriteString(fmt.Sprintf("    pyrite_release_dict(&%s);\n", name))
+	case "set":
+		c.body.WriteString(fmt.Sprintf("    pyrite_release_set(&%s);\n", name))
+	case "string_builder", "bytes_builder":
+		c.body.WriteString(fmt.Sprintf("    pyrite_release(%s.items);\n", name))
 	case "any":
 		c.body.WriteString(fmt.Sprintf("    pyrite_release_any(&%s);\n", name))
 	}
@@ -397,6 +412,12 @@ func (c *Compiler) keepPointer(name, kind string) string {
 	case "list_int":
 		return fmt.Sprintf("%s.items", name)
 	case "list_any":
+		return fmt.Sprintf("%s.items", name)
+	case "dict":
+		return fmt.Sprintf("%s.entries", name)
+	case "set":
+		return fmt.Sprintf("%s.items", name)
+	case "string_builder", "bytes_builder":
 		return fmt.Sprintf("%s.items", name)
 	case "any":
 		return fmt.Sprintf("(%s.kind == PYRITE_ANY_STRING ? %s.as.s : NULL)", name, name)
@@ -589,6 +610,10 @@ func (c *Compiler) emitPrint(lineNo int, expr string) error {
 		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(pyrite_list_any_string(&%s));\n", code))
 	case "bytes":
 		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(pyrite_bytes_string(&%s));\n", code))
+	case "dict":
+		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(pyrite_dict_string(&%s));\n", code))
+	case "set":
+		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(pyrite_set_string(&%s));\n", code))
 	default:
 		c.body.WriteString(fmt.Sprintf("    pyrite_print_str(%s);\n", code))
 	}
@@ -1006,6 +1031,14 @@ func (c *Compiler) decl(name, kind string) string {
 		return "PyriteList "
 	case "list_any":
 		return "PyriteAnyList "
+	case "dict":
+		return "PyriteDict "
+	case "set":
+		return "PyriteSet "
+	case "string_builder":
+		return "PyriteStringBuilder "
+	case "bytes_builder":
+		return "PyriteBytesBuilder "
 	case "object":
 		return "PyriteObject "
 	default:
@@ -1044,6 +1077,14 @@ func (c *Compiler) cType(kind string) string {
 		return "PyriteList"
 	case "list_any":
 		return "PyriteAnyList"
+	case "dict":
+		return "PyriteDict"
+	case "set":
+		return "PyriteSet"
+	case "string_builder":
+		return "PyriteStringBuilder"
+	case "bytes_builder":
+		return "PyriteBytesBuilder"
 	case "object":
 		return "PyriteObject"
 	default:

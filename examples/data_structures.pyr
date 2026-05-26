@@ -1,0 +1,36 @@
+def main():
+    nums: list[int] = [1, 2]
+    nums = nums.push(3)
+    nums = nums.set(0, 9)
+    print(nums.len())
+    print(nums.peek())
+    nums = nums.pop()
+    print(nums.get(0))
+
+    values: list[any] = ["token"]
+    values = values.push(42)
+    print(values.len())
+    print(values.peek())
+
+    table: dict = dict()
+    table = table.set("name", "Pyrite")
+    table = table.set("answer", 42)
+    print(table.has("name"))
+    print(table.get_string("name"))
+    print(table.get_int("answer"))
+
+    seen: set = set()
+    seen = seen.add("main")
+    seen = seen.add("main")
+    print(seen.len())
+    print(seen.has("main"))
+
+    text: string_builder = string_builder()
+    text = text.write("hello")
+    text = text.write(" world")
+    print(text.string())
+
+    data: bytes_builder = bytes_builder()
+    data = data.push(65)
+    data = data.write(b"R")
+    print(data.bytes().to_string())

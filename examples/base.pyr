@@ -11,7 +11,7 @@ def main():
     scores: list[int] = [10, 32]
     bonus = random.int(1, max_bonus)
     defaults = scoring.defaults
-    user: dict = defaults
+    user: object = defaults
     user.name = name
     user.score = scoring.add(scores[0], scores[1])
     message = f"{user.name} scored {user.score}"

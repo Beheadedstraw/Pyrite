@@ -75,6 +75,18 @@ func (c *Compiler) expr(s string) (string, string, error) {
 	if code, kind, ok, err := c.classMethodCall(s); ok || err != nil {
 		return code, kind, err
 	}
+	if code, kind, ok, err := c.listMethodCall(s); ok || err != nil {
+		return code, kind, err
+	}
+	if code, kind, ok, err := c.dictMethodCall(s); ok || err != nil {
+		return code, kind, err
+	}
+	if code, kind, ok, err := c.setMethodCall(s); ok || err != nil {
+		return code, kind, err
+	}
+	if code, kind, ok, err := c.builderMethodCall(s); ok || err != nil {
+		return code, kind, err
+	}
 	if code, kind, ok, err := c.bytesMethodCall(s); ok || err != nil {
 		return code, kind, err
 	}
@@ -412,6 +424,295 @@ func (c *Compiler) bytesMethodCall(s string) (string, string, bool, error) {
 	return fmt.Sprintf("%s(%s)", spec.symbol, strings.Join(codes, ", ")), spec.kind, true, nil
 }
 
+func (c *Compiler) listMethodCall(s string) (string, string, bool, error) {
+	baseRaw, method, rawArgs, ok := splitMethodCall(s)
+	if !ok {
+		return "", "", false, nil
+	}
+	if method != "len" && method != "get" && method != "at" && method != "set" && method != "push" && method != "pop" && method != "peek" {
+		return "", "", false, nil
+	}
+	base, baseKind, err := c.expr(baseRaw)
+	if err != nil {
+		return "", "", true, err
+	}
+	if baseKind != "list_int" && baseKind != "list_any" {
+		return "", "", false, nil
+	}
+	args := splitArgs(rawArgs)
+	suffix := "int"
+	itemKind := "int"
+	if baseKind == "list_any" {
+		suffix = "any"
+		itemKind = "any"
+	}
+	switch method {
+	case "len":
+		if len(args) != 0 {
+			return "", "", true, fmt.Errorf("len expects 0 argument(s)")
+		}
+		return fmt.Sprintf("pyrite_list_%s_len(%s)", suffix, base), "int", true, nil
+	case "get", "at":
+		if len(args) != 1 {
+			return "", "", true, fmt.Errorf("%s expects 1 argument(s)", method)
+		}
+		idx, idxKind, err := c.expr(args[0])
+		if err != nil {
+			return "", "", true, err
+		}
+		if idxKind != "int" {
+			return "", "", true, fmt.Errorf("%s expects int index, got %s", method, idxKind)
+		}
+		return fmt.Sprintf("pyrite_list_%s_get(%s, %s)", suffix, base, idx), itemKind, true, nil
+	case "peek":
+		if len(args) != 0 {
+			return "", "", true, fmt.Errorf("peek expects 0 argument(s)")
+		}
+		return fmt.Sprintf("pyrite_list_%s_peek(%s)", suffix, base), itemKind, true, nil
+	case "pop":
+		if len(args) != 0 {
+			return "", "", true, fmt.Errorf("pop expects 0 argument(s)")
+		}
+		return fmt.Sprintf("pyrite_list_%s_pop(%s)", suffix, base), baseKind, true, nil
+	case "push":
+		if len(args) != 1 {
+			return "", "", true, fmt.Errorf("push expects 1 argument(s)")
+		}
+		value, valueKind, err := c.expr(args[0])
+		if err != nil {
+			return "", "", true, err
+		}
+		if baseKind == "list_int" {
+			if valueKind != "int" {
+				return "", "", true, fmt.Errorf("push expects int value, got %s", valueKind)
+			}
+		} else if valueKind != "any" {
+			value, err = anyValue(value, valueKind)
+			if err != nil {
+				return "", "", true, err
+			}
+		}
+		return fmt.Sprintf("pyrite_list_%s_push(%s, %s)", suffix, base, value), baseKind, true, nil
+	case "set":
+		if len(args) != 2 {
+			return "", "", true, fmt.Errorf("set expects 2 argument(s)")
+		}
+		idx, idxKind, err := c.expr(args[0])
+		if err != nil {
+			return "", "", true, err
+		}
+		if idxKind != "int" {
+			return "", "", true, fmt.Errorf("set expects int index, got %s", idxKind)
+		}
+		value, valueKind, err := c.expr(args[1])
+		if err != nil {
+			return "", "", true, err
+		}
+		if baseKind == "list_int" {
+			if valueKind != "int" {
+				return "", "", true, fmt.Errorf("set expects int value, got %s", valueKind)
+			}
+		} else if valueKind != "any" {
+			value, err = anyValue(value, valueKind)
+			if err != nil {
+				return "", "", true, err
+			}
+		}
+		return fmt.Sprintf("pyrite_list_%s_set(%s, %s, %s)", suffix, base, idx, value), baseKind, true, nil
+	}
+	return "", "", false, nil
+}
+
+func (c *Compiler) dictMethodCall(s string) (string, string, bool, error) {
+	baseRaw, method, rawArgs, ok := splitMethodCall(s)
+	if !ok {
+		return "", "", false, nil
+	}
+	if method != "len" && method != "has" && method != "get" && method != "get_string" && method != "get_int" && method != "set" && method != "remove" {
+		return "", "", false, nil
+	}
+	base, baseKind, err := c.expr(baseRaw)
+	if err != nil {
+		return "", "", true, err
+	}
+	if baseKind != "dict" {
+		return "", "", false, nil
+	}
+	args := splitArgs(rawArgs)
+	if method == "len" {
+		if len(args) != 0 {
+			return "", "", true, fmt.Errorf("len expects 0 argument(s)")
+		}
+		return fmt.Sprintf("pyrite_dict_len(%s)", base), "int", true, nil
+	}
+	if method == "set" {
+		if len(args) != 2 {
+			return "", "", true, fmt.Errorf("set expects 2 argument(s)")
+		}
+		key, keyKind, err := c.expr(args[0])
+		if err != nil {
+			return "", "", true, err
+		}
+		if keyKind != "string" {
+			return "", "", true, fmt.Errorf("dict key must be string, got %s", keyKind)
+		}
+		value, valueKind, err := c.expr(args[1])
+		if err != nil {
+			return "", "", true, err
+		}
+		if valueKind != "any" {
+			value, err = anyValue(value, valueKind)
+			if err != nil {
+				return "", "", true, err
+			}
+		}
+		return fmt.Sprintf("pyrite_dict_set(%s, %s, %s)", base, key, value), "dict", true, nil
+	}
+	if len(args) != 1 {
+		return "", "", true, fmt.Errorf("%s expects 1 argument(s)", method)
+	}
+	key, keyKind, err := c.expr(args[0])
+	if err != nil {
+		return "", "", true, err
+	}
+	if keyKind != "string" {
+		return "", "", true, fmt.Errorf("dict key must be string, got %s", keyKind)
+	}
+	switch method {
+	case "has":
+		return fmt.Sprintf("pyrite_dict_has(%s, %s)", base, key), "bool", true, nil
+	case "get":
+		return fmt.Sprintf("pyrite_dict_get(%s, %s)", base, key), "any", true, nil
+	case "get_string":
+		return fmt.Sprintf("pyrite_dict_get_string(%s, %s)", base, key), "string", true, nil
+	case "get_int":
+		return fmt.Sprintf("pyrite_dict_get_int(%s, %s)", base, key), "int", true, nil
+	case "remove":
+		return fmt.Sprintf("pyrite_dict_remove(%s, %s)", base, key), "dict", true, nil
+	}
+	return "", "", false, nil
+}
+
+func (c *Compiler) setMethodCall(s string) (string, string, bool, error) {
+	baseRaw, method, rawArgs, ok := splitMethodCall(s)
+	if !ok {
+		return "", "", false, nil
+	}
+	if method != "len" && method != "has" && method != "add" && method != "remove" {
+		return "", "", false, nil
+	}
+	base, baseKind, err := c.expr(baseRaw)
+	if err != nil {
+		return "", "", true, err
+	}
+	if baseKind != "set" {
+		return "", "", false, nil
+	}
+	args := splitArgs(rawArgs)
+	if method == "len" {
+		if len(args) != 0 {
+			return "", "", true, fmt.Errorf("len expects 0 argument(s)")
+		}
+		return fmt.Sprintf("pyrite_set_len(%s)", base), "int", true, nil
+	}
+	if len(args) != 1 {
+		return "", "", true, fmt.Errorf("%s expects 1 argument(s)", method)
+	}
+	value, valueKind, err := c.expr(args[0])
+	if err != nil {
+		return "", "", true, err
+	}
+	if valueKind != "string" {
+		return "", "", true, fmt.Errorf("set value must be string, got %s", valueKind)
+	}
+	switch method {
+	case "has":
+		return fmt.Sprintf("pyrite_set_has(%s, %s)", base, value), "bool", true, nil
+	case "add":
+		return fmt.Sprintf("pyrite_set_add(%s, %s)", base, value), "set", true, nil
+	case "remove":
+		return fmt.Sprintf("pyrite_set_remove(%s, %s)", base, value), "set", true, nil
+	}
+	return "", "", false, nil
+}
+
+func (c *Compiler) builderMethodCall(s string) (string, string, bool, error) {
+	baseRaw, method, rawArgs, ok := splitMethodCall(s)
+	if !ok {
+		return "", "", false, nil
+	}
+	base, baseKind, err := c.expr(baseRaw)
+	if err != nil {
+		return "", "", true, err
+	}
+	args := splitArgs(rawArgs)
+	if baseKind == "string_builder" {
+		switch method {
+		case "write":
+			if len(args) != 1 {
+				return "", "", true, fmt.Errorf("write expects 1 argument(s)")
+			}
+			value, valueKind, err := c.expr(args[0])
+			if err != nil {
+				return "", "", true, err
+			}
+			if valueKind != "string" {
+				return "", "", true, fmt.Errorf("write expects string, got %s", valueKind)
+			}
+			return fmt.Sprintf("pyrite_string_builder_write(%s, %s)", base, value), "string_builder", true, nil
+		case "string", "to_string":
+			if len(args) != 0 {
+				return "", "", true, fmt.Errorf("%s expects 0 argument(s)", method)
+			}
+			return fmt.Sprintf("pyrite_string_builder_string(%s)", base), "string", true, nil
+		case "len":
+			if len(args) != 0 {
+				return "", "", true, fmt.Errorf("len expects 0 argument(s)")
+			}
+			return fmt.Sprintf("pyrite_string_builder_len(%s)", base), "int", true, nil
+		}
+	}
+	if baseKind == "bytes_builder" {
+		switch method {
+		case "write":
+			if len(args) != 1 {
+				return "", "", true, fmt.Errorf("write expects 1 argument(s)")
+			}
+			value, valueKind, err := c.expr(args[0])
+			if err != nil {
+				return "", "", true, err
+			}
+			if valueKind != "bytes" {
+				return "", "", true, fmt.Errorf("write expects bytes, got %s", valueKind)
+			}
+			return fmt.Sprintf("pyrite_bytes_builder_write(%s, %s)", base, value), "bytes_builder", true, nil
+		case "push":
+			if len(args) != 1 {
+				return "", "", true, fmt.Errorf("push expects 1 argument(s)")
+			}
+			value, valueKind, err := c.expr(args[0])
+			if err != nil {
+				return "", "", true, err
+			}
+			if valueKind != "int" {
+				return "", "", true, fmt.Errorf("push expects int, got %s", valueKind)
+			}
+			return fmt.Sprintf("pyrite_bytes_builder_push(%s, %s)", base, value), "bytes_builder", true, nil
+		case "bytes", "to_bytes":
+			if len(args) != 0 {
+				return "", "", true, fmt.Errorf("%s expects 0 argument(s)", method)
+			}
+			return fmt.Sprintf("pyrite_bytes_builder_bytes(%s)", base), "bytes", true, nil
+		case "len":
+			if len(args) != 0 {
+				return "", "", true, fmt.Errorf("len expects 0 argument(s)")
+			}
+			return fmt.Sprintf("pyrite_bytes_builder_len(%s)", base), "int", true, nil
+		}
+	}
+	return "", "", false, nil
+}
+
 type compilerIntrinsicSpec struct {
 	symbol string
 	params []string
@@ -422,6 +723,10 @@ func compilerIntrinsics() map[string]compilerIntrinsicSpec {
 	return map[string]compilerIntrinsicSpec{
 		"chr":                   {"pyrite_chr", []string{"int"}, "string"},
 		"bytes":                 {"pyrite_bytes_from_list", []string{"list_int"}, "bytes"},
+		"dict":                  {"pyrite_dict_new", []string{}, "dict"},
+		"set":                   {"pyrite_set_new", []string{}, "set"},
+		"string_builder":        {"pyrite_string_builder_new", []string{}, "string_builder"},
+		"bytes_builder":         {"pyrite_bytes_builder_new", []string{}, "bytes_builder"},
 		"__json_stringify_any":  {"pyrite_json_stringify_any", []string{"any"}, "string"},
 		"__json_stringify_list": {"pyrite_json_stringify_list", []string{"list_any"}, "string"},
 		"__json_parse_any":      {"pyrite_json_parse_any", []string{"string"}, "any"},
