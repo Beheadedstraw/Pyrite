@@ -482,7 +482,7 @@ func (c *Compiler) compileASTStatements(stmts []pyriteStmt, baseIndent int) erro
 	c.mainIndent = baseIndent
 	for i := 0; i < len(stmts); i++ {
 		stmt := stmts[i]
-		if _, ok := stmt.(*pyriteControlStmt); ok && stmt.stmtBase().Text == "else:" {
+		if ctrl, ok := stmt.(*pyriteControlStmt); ok && ctrl.Kind == "else" {
 			return fmt.Errorf("line %d: else without if", stmt.stmtBase().Line)
 		}
 		if _, ok := stmt.(*pyriteExceptStmt); ok {
@@ -585,7 +585,7 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("line %d: unsupported control statement %q", base.Line, base.Text)
+			return fmt.Errorf("line %d: unsupported control statement %q", base.Line, node.Kind)
 		}
 	case *pyriteVarStmt:
 		return c.emitAssignAST(base.Line, node.Name, node.Type, node.Value, false)
@@ -598,7 +598,7 @@ func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
 	case *pyriteExprStmt:
 		return c.emitExprStmtAST(base.Line, node.Expr)
 	default:
-		return fmt.Errorf("line %d: unsupported statement %q", base.Line, base.Text)
+		return fmt.Errorf("line %d: unsupported statement %T", base.Line, stmt)
 	}
 	if len(base.Children) == 0 {
 		switch stmt.(type) {

@@ -78,7 +78,6 @@ type pyriteStmt interface {
 type pyriteStmtBase struct {
 	Line     int
 	Indent   int
-	Text     string
 	Children []pyriteStmt
 }
 

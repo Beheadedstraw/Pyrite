@@ -329,9 +329,9 @@ func (p *pyriteParser) parseStatementLine(indent int) (pyriteStmt, error) {
 
 func parsePyriteStatementTokens(tokens []pyriteToken, line, indent int) (pyriteStmt, error) {
 	if len(tokens) == 0 {
-		return &pyriteControlStmt{pyriteStmtBase: pyriteStmtBase{Line: line, Indent: indent, Text: tokensText(tokens)}, Kind: ""}, nil
+		return &pyriteControlStmt{pyriteStmtBase: pyriteStmtBase{Line: line, Indent: indent}, Kind: ""}, nil
 	}
-	base := pyriteStmtBase{Line: line, Indent: indent, Text: tokensText(tokens)}
+	base := pyriteStmtBase{Line: line, Indent: indent}
 	first := tokens[0].Lexeme
 	switch first {
 	case "return":
@@ -518,7 +518,7 @@ func validatePyriteExpressionTokens(tokens []pyriteToken) error {
 }
 
 func validateForStatementExpressions(tokens []pyriteToken) error {
-	_, err := parseForStatement(tokens, pyriteStmtBase{Line: tokens[0].Line, Indent: tokens[0].Column - 1, Text: tokensText(tokens)})
+	_, err := parseForStatement(tokens, pyriteStmtBase{Line: tokens[0].Line, Indent: tokens[0].Column - 1})
 	return err
 }
 
