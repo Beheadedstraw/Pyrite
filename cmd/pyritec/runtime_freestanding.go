@@ -164,6 +164,26 @@ static size_t pyrite_strlen(const char *s) {
     return n;
 }
 
+static int pyrite_ascii_space(unsigned char ch) {
+    return ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' || ch == '\v' || ch == '\f';
+}
+
+static int pyrite_ascii_digit(unsigned char ch) {
+    return ch >= '0' && ch <= '9';
+}
+
+static int pyrite_ascii_alpha(unsigned char ch) {
+    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+}
+
+static char pyrite_ascii_upper(unsigned char ch) {
+    return (ch >= 'a' && ch <= 'z') ? (char)(ch - 32) : (char)ch;
+}
+
+static char pyrite_ascii_lower(unsigned char ch) {
+    return (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : (char)ch;
+}
+
 static long pyrite_string_len(const char *s) {
     return (long)pyrite_strlen(s);
 }
@@ -222,6 +242,50 @@ static long pyrite_string_byte_at(const char *s, long index) {
     return (long)(unsigned char)s[index];
 }
 
+static char *pyrite_string_lstrip(const char *s) {
+    if (!s) s = "";
+    size_t start = 0;
+    size_t len = pyrite_strlen(s);
+    while (start < len && pyrite_ascii_space((unsigned char)s[start])) start++;
+    return pyrite_string_slice(s, (long)start, (long)len);
+}
+
+static char *pyrite_string_rstrip(const char *s) {
+    if (!s) s = "";
+    size_t end = pyrite_strlen(s);
+    while (end > 0 && pyrite_ascii_space((unsigned char)s[end - 1])) end--;
+    return pyrite_string_slice(s, 0, (long)end);
+}
+
+static char *pyrite_string_strip(const char *s) {
+    if (!s) s = "";
+    size_t start = 0;
+    size_t end = pyrite_strlen(s);
+    while (start < end && pyrite_ascii_space((unsigned char)s[start])) start++;
+    while (end > start && pyrite_ascii_space((unsigned char)s[end - 1])) end--;
+    return pyrite_string_slice(s, (long)start, (long)end);
+}
+
+static char *pyrite_string_upper(const char *s) {
+    if (!s) s = "";
+    size_t len = pyrite_strlen(s);
+    char *out = pyrite_malloc(len + 1);
+    if (!out) return "";
+    for (size_t i = 0; i < len; i++) out[i] = pyrite_ascii_upper((unsigned char)s[i]);
+    out[len] = '\0';
+    return out;
+}
+
+static char *pyrite_string_lower(const char *s) {
+    if (!s) s = "";
+    size_t len = pyrite_strlen(s);
+    char *out = pyrite_malloc(len + 1);
+    if (!out) return "";
+    for (size_t i = 0; i < len; i++) out[i] = pyrite_ascii_lower((unsigned char)s[i]);
+    out[len] = '\0';
+    return out;
+}
+
 static int pyrite_string_startswith(const char *s, const char *prefix) {
     if (!s) s = "";
     if (!prefix) prefix = "";
@@ -243,6 +307,107 @@ static long pyrite_string_find(const char *s, const char *needle) {
         if (j == needle_len) return (long)i;
     }
     return -1;
+}
+
+static int pyrite_string_contains(const char *s, const char *needle) {
+    return pyrite_string_find(s, needle) >= 0;
+}
+
+static int pyrite_string_endswith(const char *s, const char *suffix) {
+    if (!s) s = "";
+    if (!suffix) suffix = "";
+    size_t len = pyrite_strlen(s);
+    size_t suffix_len = pyrite_strlen(suffix);
+    if (suffix_len > len) return 0;
+    for (size_t i = 0; i < suffix_len; i++) {
+        if (s[len - suffix_len + i] != suffix[i]) return 0;
+    }
+    return 1;
+}
+
+static char *pyrite_string_replace(const char *s, const char *old, const char *replacement) {
+    if (!s) s = "";
+    if (!old) old = "";
+    if (!replacement) replacement = "";
+    size_t old_len = pyrite_strlen(old);
+    if (old_len == 0) return pyrite_promote_string(s);
+    size_t repl_len = pyrite_strlen(replacement);
+    size_t count = 0;
+    const char *p = s;
+    while (*p) {
+        size_t j = 0;
+        while (j < old_len && p[j] && p[j] == old[j]) j++;
+        if (j == old_len) {
+            count++;
+            p += old_len;
+        } else {
+            p++;
+        }
+    }
+    size_t len = pyrite_strlen(s);
+    size_t out_len = repl_len >= old_len ? len + count * (repl_len - old_len) : len - count * (old_len - repl_len);
+    char *out = pyrite_malloc(out_len + 1);
+    if (!out) return "";
+    char *dst = out;
+    p = s;
+    while (*p) {
+        size_t j = 0;
+        while (j < old_len && p[j] && p[j] == old[j]) j++;
+        if (j == old_len) {
+            pyrite_memcpy(dst, replacement, repl_len);
+            dst += repl_len;
+            p += old_len;
+        } else {
+            *dst++ = *p++;
+        }
+    }
+    *dst = '\0';
+    return out;
+}
+
+static long pyrite_string_to_int(const char *s) {
+    if (!s) return 0;
+    while (pyrite_ascii_space((unsigned char)*s)) s++;
+    int sign = 1;
+    if (*s == '-') {
+        sign = -1;
+        s++;
+    } else if (*s == '+') {
+        s++;
+    }
+    long value = 0;
+    while (pyrite_ascii_digit((unsigned char)*s)) {
+        value = value * 10 + (long)(*s - '0');
+        s++;
+    }
+    return value * sign;
+}
+
+static int pyrite_string_is_digit(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_digit((unsigned char)*s)) return 0;
+    return 1;
+}
+
+static int pyrite_string_is_alpha(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_alpha((unsigned char)*s)) return 0;
+    return 1;
+}
+
+static int pyrite_string_is_alnum(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) {
+        unsigned char ch = (unsigned char)*s;
+        if (!pyrite_ascii_alpha(ch) && !pyrite_ascii_digit(ch)) return 0;
+    }
+    return 1;
+}
+
+static int pyrite_string_is_space(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_space((unsigned char)*s)) return 0;
+    return 1;
 }
 
 int strcmp(const char *left, const char *right) {

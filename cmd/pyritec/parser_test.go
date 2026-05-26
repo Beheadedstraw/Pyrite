@@ -253,6 +253,12 @@ func TestCompilerEmitsMethodsAndIntrinsicsFromAST(t *testing.T) {
 def main():
     name: string = "Ada"
     trimmed = name.strip()
+    lowered = name.lower()
+    parsed = "42".to_int()
+    digit = "9".is_digit()
+    alpha = "Ada".is_alpha()
+    alnum = "Ada9".is_alnum()
+    space = "  ".is_space()
     numbers: list[int] = [1, 2]
     numbers = numbers.push(3)
     first = numbers.get(0)
@@ -270,6 +276,12 @@ def main():
 	body := compiler.body.String()
 	for _, want := range []string{
 		"pyrite_string_strip(name)",
+		"pyrite_string_lower(name)",
+		"pyrite_string_to_int(\"42\")",
+		"pyrite_string_is_digit(\"9\")",
+		"pyrite_string_is_alpha(\"Ada\")",
+		"pyrite_string_is_alnum(\"Ada9\")",
+		"pyrite_string_is_space(\"  \")",
 		"pyrite_list_int_push(numbers, 3)",
 		"pyrite_list_int_get(numbers, 0)",
 		"pyrite_bytes_from_list(numbers)",

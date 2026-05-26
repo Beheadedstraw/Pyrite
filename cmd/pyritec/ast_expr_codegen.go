@@ -236,6 +236,11 @@ func (c *Compiler) stringMethodCallExprAST(base, method string, args []pyriteExp
 		"get":         {"pyrite_string_at", 1, "string"},
 		"at":          {"pyrite_string_at", 1, "string"},
 		"byte":        {"pyrite_string_byte_at", 1, "int"},
+		"to_int":      {"pyrite_string_to_int", 0, "int"},
+		"is_digit":    {"pyrite_string_is_digit", 0, "bool"},
+		"is_alpha":    {"pyrite_string_is_alpha", 0, "bool"},
+		"is_alnum":    {"pyrite_string_is_alnum", 0, "bool"},
+		"is_space":    {"pyrite_string_is_space", 0, "bool"},
 	}
 	spec, exists := methods[method]
 	if !exists {

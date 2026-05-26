@@ -1340,6 +1340,14 @@ static int pyrite_ascii_space(unsigned char ch) {
     return ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' || ch == '\v' || ch == '\f';
 }
 
+static int pyrite_ascii_digit(unsigned char ch) {
+    return ch >= '0' && ch <= '9';
+}
+
+static int pyrite_ascii_alpha(unsigned char ch) {
+    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+}
+
 static char pyrite_ascii_upper(unsigned char ch) {
     return (ch >= 'a' && ch <= 'z') ? (char)(ch - 32) : (char)ch;
 }
@@ -2139,6 +2147,51 @@ static char *pyrite_string_replace(const char *s, const char *old, const char *r
     }
     strcpy(dst, p);
     return out;
+}
+
+static long pyrite_string_to_int(const char *s) {
+    if (!s) return 0;
+    while (pyrite_ascii_space((unsigned char)*s)) s++;
+    int sign = 1;
+    if (*s == '-') {
+        sign = -1;
+        s++;
+    } else if (*s == '+') {
+        s++;
+    }
+    long value = 0;
+    while (pyrite_ascii_digit((unsigned char)*s)) {
+        value = value * 10 + (long)(*s - '0');
+        s++;
+    }
+    return value * sign;
+}
+
+static int pyrite_string_is_digit(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_digit((unsigned char)*s)) return 0;
+    return 1;
+}
+
+static int pyrite_string_is_alpha(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_alpha((unsigned char)*s)) return 0;
+    return 1;
+}
+
+static int pyrite_string_is_alnum(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) {
+        unsigned char ch = (unsigned char)*s;
+        if (!pyrite_ascii_alpha(ch) && !pyrite_ascii_digit(ch)) return 0;
+    }
+    return 1;
+}
+
+static int pyrite_string_is_space(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_space((unsigned char)*s)) return 0;
+    return 1;
 }
 
 static char *pyrite_list_int_string(PyriteList *list) {
