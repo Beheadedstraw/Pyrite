@@ -188,6 +188,74 @@ func (c *Compiler) emitInlineIf(lineNo int, s string) error {
 	return nil
 }
 
+func (c *Compiler) emitReturnExpr(lineNo int, expr pyriteExpr) error {
+	code, kind, err := c.exprAST(expr)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if c.currentFunction == "main" {
+		c.body.WriteString(fmt.Sprintf("    int __pyrite_return = (int)(%s);\n", code))
+		c.emitDefers()
+		c.body.WriteString("    return __pyrite_return;\n")
+		return nil
+	}
+	fn := c.functions[c.currentFunction]
+	if fn == nil {
+		return fmt.Errorf("line %d: return outside function", lineNo)
+	}
+	want := fn.returnType
+	if want == "any" && kind != "any" {
+		anyCode, err := anyValue(code, kind)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		code = anyCode
+	} else if want == "list_any" && kind == "list_int" {
+		code = fmt.Sprintf("pyrite_list_int_to_any(%s)", code)
+	} else if !typesCompatible(want, kind) {
+		return fmt.Errorf("line %d: function %s returns %s but got %s", lineNo, c.currentFunction, want, kind)
+	}
+	c.body.WriteString(fmt.Sprintf("    return %s;\n", code))
+	return nil
+}
+
+func (c *Compiler) emitRaiseExpr(lineNo int, expr pyriteExpr) error {
+	code, kind, err := c.exprAST(expr)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if kind != "string" {
+		return fmt.Errorf("line %d: raise expects a string", lineNo)
+	}
+	tryID, ok := c.activeTry()
+	if !ok {
+		return fmt.Errorf("line %d: raise without active try", lineNo)
+	}
+	c.body.WriteString(fmt.Sprintf("    __pyrite_error = %s;\n", code))
+	c.body.WriteString(fmt.Sprintf("    goto __pyrite_except_%d;\n", tryID))
+	return nil
+}
+
+func (c *Compiler) emitIfHeaderAST(lineNo, indent int, condition pyriteExpr) error {
+	code, err := c.conditionAST(condition)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	c.body.WriteString(fmt.Sprintf("    if (%s) {\n", code))
+	c.blockStack = append(c.blockStack, block{kind: "if", indent: indent})
+	return nil
+}
+
+func (c *Compiler) emitWhileHeaderAST(lineNo, indent int, condition pyriteExpr) error {
+	code, err := c.conditionAST(condition)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	c.body.WriteString(fmt.Sprintf("    while (%s) {\n", code))
+	c.blockStack = append(c.blockStack, block{kind: "while", indent: indent})
+	return nil
+}
+
 func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 	parts := strings.SplitN(s, "=", 2)
 	if len(parts) != 2 {
@@ -245,6 +313,130 @@ func (c *Compiler) emitAssign(lineNo int, s string, immutable bool) error {
 		c.body.WriteString(fmt.Sprintf("    PyriteAllocation *%s = pyrite_checkpoint();\n", checkpointName))
 	}
 	code, kind, err := c.expr(value)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if err := checkType(lineNo, name, target.annotated, kind); err != nil {
+		return err
+	}
+	existing := c.types[name]
+	if existing != "" && !typesCompatible(existing, kind) {
+		return fmt.Errorf("line %d: cannot assign %s to %s previously inferred as %s", lineNo, kind, name, existing)
+	}
+	storeKind := kind
+	if target.annotated != "" {
+		storeKind = target.annotated
+	} else if existing != "" {
+		storeKind = existing
+	}
+	if storeKind == "any" && kind != "any" {
+		code, err = anyValue(code, kind)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+	} else if storeKind == "list_any" && kind == "list_int" {
+		code = fmt.Sprintf("pyrite_list_int_to_any(%s)", code)
+	}
+	decl := c.decl(name, storeKind)
+	declared := decl != ""
+	if immutable {
+		c.consts[name] = true
+	}
+	if existing != "" && c.releasableKind(storeKind) && storeKind != "string" && !preReleased && !assignmentValueReferencesName(value, name) {
+		c.emitReleaseValue(cName, storeKind)
+	}
+	c.types[name] = storeKind
+	if storeKind == "string" {
+		if decl != "" {
+			c.body.WriteString(fmt.Sprintf("    %s%s = NULL;\n", decl, cName))
+		}
+		c.body.WriteString(fmt.Sprintf("    pyrite_assign_string(&%s, %s);\n", cName, code))
+	} else if storeKind == "bytes" {
+		c.body.WriteString(fmt.Sprintf("    %s%s = %s;\n", decl, cName, code))
+	} else {
+		c.body.WriteString(fmt.Sprintf("    %s%s = %s;\n", decl, cName, code))
+	}
+	if checkpoint {
+		if storeKind != "list_int" && isListKind(storeKind) {
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_any_list(%s, &%s);\n", checkpointName, cName))
+		} else if storeKind == "bytes" {
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since(%s, %s.items);\n", checkpointName, cName))
+		} else if isDictKind(storeKind) || storeKind == "set" {
+			c.body.WriteString(fmt.Sprintf("    (void)%s;\n", checkpointName))
+			c.body.WriteString("    /* dict/set values keep nested allocations for now. */\n")
+		} else if isClassKind(storeKind) {
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since_class_object(%s, %s);\n", checkpointName, cName))
+		} else {
+			c.body.WriteString(fmt.Sprintf("    pyrite_release_since(%s, %s);\n", checkpointName, c.keepPointer(cName, storeKind)))
+		}
+		c.body.WriteString("    pyrite_temp_reset();\n")
+	}
+	if declared {
+		c.registerBlockCleanup(cName, storeKind)
+	}
+	if isDeferredResource(storeKind) {
+		c.emitResourceOpenCheck(cName, storeKind)
+	}
+	return nil
+}
+
+func (c *Compiler) emitAssignAST(lineNo int, s string, valueExpr pyriteExpr, immutable bool) error {
+	parts := strings.SplitN(s, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("line %d: invalid assignment", lineNo)
+	}
+	target, err := parseBindingTarget(parts[0])
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	name := target.name
+	value := strings.TrimSpace(parts[1])
+	if c.consts[name] {
+		return fmt.Errorf("line %d: cannot reassign immutable %s", lineNo, name)
+	}
+
+	cName := name
+	if strings.Contains(name, ".") {
+		if _, exists := c.types[name]; !exists {
+			return c.emitMemberAssign(lineNo, name, value)
+		}
+		cName = c.variableCName(name)
+	}
+
+	if strings.HasSuffix(value, ").defer()") {
+		openCall := strings.TrimSuffix(value, ".defer()")
+		code, kind, err := c.expr(openCall)
+		if err == nil && isDeferredResource(kind) {
+			if err := checkType(lineNo, name, target.annotated, kind); err != nil {
+				return err
+			}
+			if existing := c.types[name]; existing != "" && !typesCompatible(existing, kind) {
+				return fmt.Errorf("line %d: cannot assign %s to %s previously inferred as %s", lineNo, kind, name, existing)
+			}
+			decl := c.decl(name, kind)
+			c.types[name] = kind
+			c.body.WriteString(fmt.Sprintf("    %s%s = %s;\n", decl, name, code))
+			c.emitResourceOpenCheck(name, kind)
+			c.defers = append(c.defers, c.resourceDefer(name, kind))
+			return nil
+		}
+	}
+
+	existingBefore := c.types[name]
+	preReleased := false
+	if existingBefore != "" && c.releasableKind(existingBefore) && existingBefore != "string" && !assignmentValueReferencesName(value, name) {
+		c.emitReleaseValue(cName, existingBefore)
+		preReleased = true
+	}
+
+	checkpoint := c.needsAssignmentCheckpoint(name, value)
+	checkpointName := ""
+	if checkpoint {
+		checkpointName = fmt.Sprintf("__pyrite_checkpoint_%d", c.nextTempID)
+		c.nextTempID++
+		c.body.WriteString(fmt.Sprintf("    PyriteAllocation *%s = pyrite_checkpoint();\n", checkpointName))
+	}
+	code, kind, err := c.exprAST(valueExpr)
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
@@ -626,6 +818,20 @@ func (c *Compiler) emitPrint(lineNo int, expr string) error {
 	if err != nil {
 		return fmt.Errorf("line %d: %w", lineNo, err)
 	}
+	c.emitPrintValue(code, kind)
+	return nil
+}
+
+func (c *Compiler) emitPrintExpr(lineNo int, expr pyriteExpr) error {
+	code, kind, err := c.exprAST(expr)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	c.emitPrintValue(code, kind)
+	return nil
+}
+
+func (c *Compiler) emitPrintValue(code, kind string) {
 	switch kind {
 	case "any":
 		c.body.WriteString(fmt.Sprintf("    pyrite_print_any(%s);\n", code))
@@ -655,7 +861,6 @@ func (c *Compiler) emitPrint(lineNo int, expr string) error {
 		}
 	}
 	c.body.WriteString("    pyrite_temp_reset();\n")
-	return nil
 }
 
 func (c *Compiler) emitRoutine(lineNo int, call string) error {
@@ -1040,6 +1245,9 @@ func (c *Compiler) emitMemberAssign(lineNo int, name, value string) error {
 }
 
 func (c *Compiler) decl(name, kind string) string {
+	if c.localDeclared != nil && c.localDeclared[name] {
+		return ""
+	}
 	if _, exists := c.types[name]; exists {
 		return ""
 	}
@@ -1089,6 +1297,116 @@ func (c *Compiler) decl(name, kind string) string {
 			return "PyriteClassObject *"
 		}
 		return "long "
+	}
+}
+
+func (c *Compiler) predeclareFunctionLocals(fn *functionDef) error {
+	if len(fn.astBody) == 0 {
+		return nil
+	}
+	declared := map[string]string{}
+	for _, stmt := range fn.astBody {
+		if err := c.predeclareStmtLocals(stmt, declared); err != nil {
+			return err
+		}
+	}
+	if len(declared) > 0 {
+		c.body.WriteString("\n")
+	}
+	return nil
+}
+
+func (c *Compiler) predeclareStmtLocals(stmt pyriteStmt, declared map[string]string) error {
+	switch node := stmt.(type) {
+	case *pyriteVarStmt:
+		if err := c.predeclareLocal(node.Line, node.Name, node.Type, node.stmtBase().Text, declared); err != nil {
+			return err
+		}
+	case *pyriteAssignStmt:
+		if err := c.predeclareLocal(node.Line, node.Target, "", node.stmtBase().Text, declared); err != nil {
+			return err
+		}
+	case *pyriteIfStmt:
+		if node.Inline != nil {
+			if err := c.predeclareStmtLocals(node.Inline, declared); err != nil {
+				return err
+			}
+		}
+	case *pyriteWhileStmt:
+		if node.Inline != nil {
+			if err := c.predeclareStmtLocals(node.Inline, declared); err != nil {
+				return err
+			}
+		}
+	case *pyriteCaseStmt:
+		if node.Inline != nil {
+			if err := c.predeclareStmtLocals(node.Inline, declared); err != nil {
+				return err
+			}
+		}
+	}
+	for _, child := range stmt.stmtBase().Children {
+		if err := c.predeclareStmtLocals(child, declared); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Compiler) predeclareLocal(lineNo int, name, annotated, source string, declared map[string]string) error {
+	if name == "" || strings.Contains(name, ".") {
+		return nil
+	}
+	if declared[name] != "" {
+		return nil
+	}
+	kind := annotated
+	if kind != "" {
+		normalized, err := normalizeType(kind)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		kind = normalized
+	} else {
+		parts := strings.SplitN(source, "=", 2)
+		if len(parts) != 2 {
+			return nil
+		}
+		value := strings.TrimSpace(parts[1])
+		if strings.HasSuffix(value, ").defer()") {
+			value = strings.TrimSuffix(value, ".defer()")
+		}
+		_, inferred, err := c.expr(value)
+		if err != nil {
+			return fmt.Errorf("line %d: %w", lineNo, err)
+		}
+		kind = inferred
+	}
+	decl := c.decl(name, kind)
+	if decl == "" {
+		return nil
+	}
+	c.body.WriteString(fmt.Sprintf("    %s%s%s;\n", decl, name, localZeroInitializer(kind)))
+	c.localDeclared[name] = true
+	c.types[name] = kind
+	declared[name] = kind
+	return nil
+}
+
+func localZeroInitializer(kind string) string {
+	if strings.HasPrefix(kind, "list:") || strings.HasPrefix(kind, "dict:") {
+		return " = {0}"
+	}
+	switch kind {
+	case "string", "file", "mux", "socket", "listener":
+		return " = NULL"
+	case "bytes", "list_int", "list_any", "dict", "set", "string_builder", "bytes_builder", "object", "any":
+		return " = {0}"
+	default:
+		if isClassKind(kind) {
+			return " = NULL"
+		}
+		return " = 0"
 	}
 }
 

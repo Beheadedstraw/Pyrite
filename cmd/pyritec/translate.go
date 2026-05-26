@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -63,155 +62,174 @@ func (c *Compiler) translate(source string) error {
 }
 
 func (c *Compiler) collectSource(source string, moduleName string) error {
-	scanner := bufio.NewScanner(strings.NewReader(source))
-	var current *functionDef
-	var currentClass *classDef
-	var currentEnum string
-	currentEnumIndent := 0
-	currentEnumNext := 0
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		raw := scanner.Text()
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		indent := countIndent(raw)
-
-		if current != nil && indent > current.indent {
-			current.body = append(current.body, sourceLine{lineNo: lineNo, raw: raw, trimmed: trimmed, indent: indent})
-			continue
-		}
-		current = nil
-		if currentClass != nil && indent <= currentClass.indent {
-			currentClass = nil
-		}
-		if currentEnum != "" && indent <= currentEnumIndent {
-			currentEnum = ""
-		}
-
-		switch {
-		case currentEnum != "" && indent > currentEnumIndent:
-			value := currentEnumNext
-			name := trimmed
-			if strings.Contains(trimmed, "=") {
-				parts := strings.SplitN(trimmed, "=", 2)
-				name = strings.TrimSpace(parts[0])
-				parsed, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-				if err != nil {
-					return fmt.Errorf("line %d: enum value must be an integer", lineNo)
-				}
-				value = parsed
-			}
-			if !isIdentifier(name) {
-				return fmt.Errorf("line %d: invalid enum member %q", lineNo, name)
-			}
-			c.enums[currentEnum][name] = value
-			cName := currentEnum + "." + name
-			c.types[cName] = "int"
-			c.consts[cName] = true
-			c.globals.WriteString(fmt.Sprintf("static const long %s = %d;\n", c.variableCName(cName), value))
-			currentEnumNext = value + 1
-		case currentClass != nil && strings.HasPrefix(trimmed, "def "):
-			fn, err := parseFunctionDef(lineNo, trimmed, indent)
-			if err != nil {
-				return err
-			}
-			fn.name = currentClass.name + "." + fn.name
-			if len(fn.params) == 0 || fn.params[0] != "self" {
-				return fmt.Errorf("line %d: class methods need self as first parameter", lineNo)
-			}
-			fn.paramTypes["self"] = classKind(currentClass.name)
-			if _, exists := c.functions[fn.name]; exists {
-				return fmt.Errorf("line %d: duplicate function %s", lineNo, fn.name)
-			}
-			c.functions[fn.name] = fn
-			c.functionOrder = append(c.functionOrder, fn.name)
-			currentClass.methods[strings.TrimPrefix(fn.name, currentClass.name+".")] = fn
-			current = fn
-		case strings.HasPrefix(trimmed, "import "):
-			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
-			c.imports[name] = true
-			if err := c.loadModule(name); err != nil {
-				return fmt.Errorf("line %d: %w", lineNo, err)
-			}
-		case strings.HasPrefix(trimmed, "native def "):
-			fn, err := parseNativeFunctionDef(lineNo, trimmed, indent, moduleName)
-			if err != nil {
-				return err
-			}
-			if _, exists := c.functions[fn.name]; exists {
-				return fmt.Errorf("line %d: duplicate function %s", lineNo, fn.name)
-			}
-			c.functions[fn.name] = fn
-			c.functionOrder = append(c.functionOrder, fn.name)
-		case strings.HasPrefix(trimmed, "global "):
-			if moduleName != "" {
-				return fmt.Errorf("line %d: module globals are not supported yet", lineNo)
-			}
-			if err := c.emitGlobal(lineNo, strings.TrimSpace(strings.TrimPrefix(trimmed, "global ")), false); err != nil {
-				return err
-			}
-		case strings.HasPrefix(trimmed, "const "):
-			if moduleName != "" {
-				return fmt.Errorf("line %d: module globals are not supported yet", lineNo)
-			}
-			if err := c.emitGlobal(lineNo, strings.TrimSpace(strings.TrimPrefix(trimmed, "const ")), true); err != nil {
-				return err
-			}
-		case strings.HasPrefix(trimmed, "class "):
-			if moduleName != "" {
-				return fmt.Errorf("line %d: module classes are not supported yet", lineNo)
-			}
-			cls, err := parseClassDef(lineNo, trimmed, indent)
-			if err != nil {
-				return err
-			}
-			if _, exists := c.classes[cls.name]; exists {
-				return fmt.Errorf("line %d: duplicate class %s", lineNo, cls.name)
-			}
-			c.classes[cls.name] = cls
-			currentClass = cls
-		case strings.HasPrefix(trimmed, "enum "):
-			if moduleName != "" {
-				return fmt.Errorf("line %d: module enums are not supported yet", lineNo)
-			}
-			name, err := parseEnumDef(lineNo, trimmed)
-			if err != nil {
-				return err
-			}
-			if _, exists := c.enums[name]; exists {
-				return fmt.Errorf("line %d: duplicate enum %s", lineNo, name)
-			}
-			c.enums[name] = map[string]int{}
-			currentEnum = name
-			currentEnumIndent = indent
-			currentEnumNext = 0
-		case strings.HasPrefix(trimmed, "def "):
-			fn, err := parseFunctionDef(lineNo, trimmed, indent)
-			if err != nil {
-				return err
-			}
-			if moduleName != "" {
-				fn.name = moduleName + "." + fn.name
-			}
-			if _, exists := c.functions[fn.name]; exists {
-				return fmt.Errorf("line %d: duplicate function %s", lineNo, fn.name)
-			}
-			c.functions[fn.name] = fn
-			c.functionOrder = append(c.functionOrder, fn.name)
-			current = fn
-		case moduleName != "" && strings.Contains(trimmed, "="):
-			if err := c.emitModuleGlobal(lineNo, moduleName, trimmed); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("line %d: statement outside function", lineNo)
+	program, err := parsePyriteProgram(source)
+	if err != nil {
+		return err
+	}
+	for _, item := range program.Items {
+		if err := c.collectTopLevelItem(item, moduleName); err != nil {
+			return err
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return err
+	return nil
+}
+
+func (c *Compiler) collectTopLevelItem(item pyriteTopLevel, moduleName string) error {
+	switch node := item.(type) {
+	case *pyriteImportDecl:
+		c.imports[node.Name] = true
+		if err := c.loadModule(node.Name); err != nil {
+			return fmt.Errorf("line %d: %w", node.Line, err)
+		}
+	case *pyriteBindingDecl:
+		source := bindingSource(node)
+		if moduleName != "" && !node.Global && !node.Const {
+			return c.emitModuleGlobal(node.Line, moduleName, source)
+		}
+		if moduleName != "" {
+			return fmt.Errorf("line %d: module globals are not supported yet", node.Line)
+		}
+		if !node.Global && !node.Const {
+			return fmt.Errorf("line %d: statement outside function", node.Line)
+		}
+		return c.emitGlobal(node.Line, source, node.Const)
+	case *pyriteFunctionDecl:
+		fn, err := functionFromAST(node, moduleName, "")
+		if err != nil {
+			return err
+		}
+		return c.addFunction(fn, node.Line)
+	case *pyriteClassDecl:
+		if moduleName != "" {
+			return fmt.Errorf("line %d: module classes are not supported yet", node.Line)
+		}
+		cls := &classDef{name: node.Name, indent: node.Indent, fields: map[string]string{}, methods: map[string]*functionDef{}}
+		if _, exists := c.classes[cls.name]; exists {
+			return fmt.Errorf("line %d: duplicate class %s", node.Line, cls.name)
+		}
+		c.classes[cls.name] = cls
+		for _, method := range node.Methods {
+			fn, err := functionFromAST(method, "", cls.name)
+			if err != nil {
+				return err
+			}
+			if len(fn.params) == 0 || fn.params[0] != "self" {
+				return fmt.Errorf("line %d: class methods need self as first parameter", method.Line)
+			}
+			fn.paramTypes["self"] = classKind(cls.name)
+			if err := c.addFunction(fn, method.Line); err != nil {
+				return err
+			}
+			cls.methods[strings.TrimPrefix(fn.name, cls.name+".")] = fn
+		}
+	case *pyriteEnumDecl:
+		if moduleName != "" {
+			return fmt.Errorf("line %d: module enums are not supported yet", node.Line)
+		}
+		return c.collectEnum(node)
+	default:
+		return fmt.Errorf("unknown top-level declaration")
+	}
+	return nil
+}
+
+func (c *Compiler) addFunction(fn *functionDef, lineNo int) error {
+	if _, exists := c.functions[fn.name]; exists {
+		return fmt.Errorf("line %d: duplicate function %s", lineNo, fn.name)
+	}
+	c.functions[fn.name] = fn
+	c.functionOrder = append(c.functionOrder, fn.name)
+	return nil
+}
+
+func functionFromAST(decl *pyriteFunctionDecl, moduleName, className string) (*functionDef, error) {
+	name := decl.Name
+	if className != "" {
+		name = className + "." + name
+	} else if moduleName != "" {
+		name = moduleName + "." + name
+	}
+	fn := &functionDef{
+		name:         name,
+		paramTypes:   map[string]string{},
+		indent:       decl.Indent,
+		body:         sourceLinesFromStmts(decl.Body),
+		astBody:      decl.Body,
+		nativeSymbol: decl.NativeSymbol,
+	}
+	if decl.ReturnType != "" {
+		returnType, err := normalizeType(decl.ReturnType)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", decl.Line, err)
+		}
+		fn.returnType = returnType
+	}
+	for _, param := range decl.Params {
+		if param.Name == "" || strings.Contains(param.Name, ".") {
+			return nil, fmt.Errorf("line %d: invalid parameter %q", decl.Line, param.Name)
+		}
+		fn.params = append(fn.params, param.Name)
+		if param.Type != "" {
+			kind, err := normalizeType(param.Type)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", decl.Line, err)
+			}
+			fn.paramTypes[param.Name] = kind
+		}
+		if decl.NativeSymbol != "" && fn.paramTypes[param.Name] == "" {
+			return nil, fmt.Errorf("line %d: native parameter %q needs a type", decl.Line, param.Name)
+		}
+	}
+	return fn, nil
+}
+
+func sourceLinesFromStmts(stmts []pyriteStmt) []sourceLine {
+	var lines []sourceLine
+	for _, stmt := range stmts {
+		base := stmt.stmtBase()
+		lines = append(lines, sourceLine{
+			lineNo:  base.Line,
+			raw:     strings.Repeat(" ", base.Indent) + base.Text,
+			trimmed: base.Text,
+			indent:  base.Indent,
+		})
+		lines = append(lines, sourceLinesFromStmts(base.Children)...)
+	}
+	return lines
+}
+
+func bindingSource(decl *pyriteBindingDecl) string {
+	left := decl.Name
+	if decl.Type != "" {
+		left += ": " + decl.Type
+	}
+	return left + " = " + decl.Value
+}
+
+func (c *Compiler) collectEnum(decl *pyriteEnumDecl) error {
+	if _, exists := c.enums[decl.Name]; exists {
+		return fmt.Errorf("line %d: duplicate enum %s", decl.Line, decl.Name)
+	}
+	c.enums[decl.Name] = map[string]int{}
+	next := 0
+	for _, member := range decl.Members {
+		value := next
+		if member.HasValue {
+			parsed, err := strconv.Atoi(member.Value)
+			if err != nil {
+				return fmt.Errorf("line %d: enum value must be an integer", member.Line)
+			}
+			value = parsed
+		}
+		if !isIdentifier(member.Name) {
+			return fmt.Errorf("line %d: invalid enum member %q", member.Line, member.Name)
+		}
+		c.enums[decl.Name][member.Name] = value
+		cName := decl.Name + "." + member.Name
+		c.types[cName] = "int"
+		c.consts[cName] = true
+		c.globals.WriteString(fmt.Sprintf("static const long %s = %d;\n", c.variableCName(cName), value))
+		next = value + 1
 	}
 	return nil
 }
@@ -398,15 +416,23 @@ func parseNativeFunctionDef(lineNo int, trimmed string, indent int, moduleName s
 }
 
 func (c *Compiler) compileMain(fn *functionDef) error {
+	oldLocalDeclared := c.localDeclared
 	c.currentFunction = "main"
-	defer func() { c.currentFunction = "" }()
+	c.localDeclared = map[string]bool{}
+	defer func() {
+		c.currentFunction = ""
+		c.localDeclared = oldLocalDeclared
+	}()
 	if c.target == "freestanding" {
 		c.body.WriteString("long kmain(void) {\n")
 	} else {
 		c.body.WriteString("int main(void) {\n")
 	}
 	c.body.WriteString("    char *__pyrite_error __attribute__((unused)) = NULL;\n")
-	if err := c.compileLines(fn.body, fn.indent); err != nil {
+	if err := c.predeclareFunctionLocals(fn); err != nil {
+		return err
+	}
+	if err := c.compileFunctionBody(fn); err != nil {
 		return err
 	}
 	c.emitDefers()
@@ -433,6 +459,7 @@ func (c *Compiler) compileFunction(fn *functionDef) error {
 	oldBlocks := c.blockStack
 	oldMainIndent := c.mainIndent
 	oldCurrentFunction := c.currentFunction
+	oldLocalDeclared := c.localDeclared
 
 	var body bytes.Buffer
 	c.body = body
@@ -441,6 +468,7 @@ func (c *Compiler) compileFunction(fn *functionDef) error {
 	c.consts = map[string]bool{}
 	c.defers = nil
 	c.blockStack = nil
+	c.localDeclared = map[string]bool{}
 	for _, param := range fn.params {
 		c.types[param] = fn.paramTypes[param]
 	}
@@ -454,7 +482,18 @@ func (c *Compiler) compileFunction(fn *functionDef) error {
 	}
 	c.body.WriteString(") {\n")
 	c.body.WriteString("    char *__pyrite_error __attribute__((unused)) = NULL;\n")
-	err := c.compileLines(fn.body, fn.indent)
+	if err := c.predeclareFunctionLocals(fn); err != nil {
+		c.body = oldBody
+		c.types = oldTypes
+		c.consts = oldConsts
+		c.defers = oldDefers
+		c.blockStack = oldBlocks
+		c.mainIndent = oldMainIndent
+		c.currentFunction = oldCurrentFunction
+		c.localDeclared = oldLocalDeclared
+		return err
+	}
+	err := c.compileFunctionBody(fn)
 	if err == nil {
 		if fn.returnType == "void" {
 			c.body.WriteString("    return;\n")
@@ -470,7 +509,197 @@ func (c *Compiler) compileFunction(fn *functionDef) error {
 	c.blockStack = oldBlocks
 	c.mainIndent = oldMainIndent
 	c.currentFunction = oldCurrentFunction
+	c.localDeclared = oldLocalDeclared
 	return err
+}
+
+func (c *Compiler) compileFunctionBody(fn *functionDef) error {
+	if len(fn.astBody) > 0 {
+		return c.compileASTStatements(fn.astBody, fn.indent)
+	}
+	return c.compileLines(fn.body, fn.indent)
+}
+
+func (c *Compiler) compileASTStatements(stmts []pyriteStmt, baseIndent int) error {
+	c.mainIndent = baseIndent
+	for i := 0; i < len(stmts); i++ {
+		stmt := stmts[i]
+		if _, ok := stmt.(*pyriteControlStmt); ok && stmt.stmtBase().Text == "else:" {
+			return fmt.Errorf("line %d: else without if", stmt.stmtBase().Line)
+		}
+		if _, ok := stmt.(*pyriteControlStmt); ok && isExceptHeader(stmt.stmtBase().Text) {
+			return fmt.Errorf("line %d: except without try", stmt.stmtBase().Line)
+		}
+		if ifStmt, ok := stmt.(*pyriteIfStmt); ok && len(ifStmt.Children) > 0 {
+			next, hasElse := followingElse(stmts, i)
+			if err := c.compileIfAST(ifStmt, next); err != nil {
+				return err
+			}
+			if hasElse {
+				i++
+			}
+			continue
+		}
+		if ctrl, ok := stmt.(*pyriteControlStmt); ok && ctrl.Kind == "try" && len(ctrl.Children) > 0 {
+			next, hasExcept := followingExcept(stmts, i)
+			if err := c.compileTryAST(ctrl, next); err != nil {
+				return err
+			}
+			if hasExcept {
+				i++
+			}
+			continue
+		}
+		if err := c.compileASTStatement(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Compiler) compileASTStatement(stmt pyriteStmt) error {
+	base := stmt.stmtBase()
+	switch node := stmt.(type) {
+	case *pyriteReturnStmt:
+		if node.Value == nil {
+			return c.emitStatement(base.Line, base.Indent, base.Text)
+		}
+		return c.emitReturnExpr(base.Line, node.Value)
+	case *pyriteRaiseStmt:
+		if node.Value == nil {
+			return c.emitStatement(base.Line, base.Indent, base.Text)
+		}
+		return c.emitRaiseExpr(base.Line, node.Value)
+	case *pyriteIfStmt:
+		if node.Inline != nil {
+			if err := c.emitIfHeaderAST(base.Line, base.Indent, node.Condition); err != nil {
+				return err
+			}
+			if err := c.compileASTStatement(node.Inline); err != nil {
+				return err
+			}
+			return c.closeBlock(base.Line)
+		}
+		if err := c.emitIfHeaderAST(base.Line, base.Indent, node.Condition); err != nil {
+			return err
+		}
+	case *pyriteWhileStmt:
+		if node.Inline != nil {
+			if err := c.emitWhileHeaderAST(base.Line, base.Indent, node.Condition); err != nil {
+				return err
+			}
+			if err := c.compileASTStatement(node.Inline); err != nil {
+				return err
+			}
+			return c.closeBlock(base.Line)
+		}
+		if err := c.emitWhileHeaderAST(base.Line, base.Indent, node.Condition); err != nil {
+			return err
+		}
+	case *pyriteVarStmt:
+		return c.emitAssignAST(base.Line, base.Text, node.Value, false)
+	case *pyriteAssignStmt:
+		return c.emitAssignAST(base.Line, base.Text, node.Value, false)
+	case *pyriteExprStmt:
+		return c.emitExprStmtAST(base.Line, node.Expr)
+	default:
+		if err := c.emitStatement(base.Line, base.Indent, base.Text); err != nil {
+			return err
+		}
+	}
+	if len(base.Children) == 0 {
+		switch stmt.(type) {
+		case *pyriteIfStmt, *pyriteWhileStmt:
+			return c.closeBlock(base.Line)
+		}
+		return nil
+	}
+	if err := c.compileASTStatements(base.Children, c.mainIndent); err != nil {
+		return err
+	}
+	return c.closeBlock(base.Line)
+}
+
+func (c *Compiler) emitExprStmtAST(lineNo int, expr pyriteExpr) error {
+	call, ok := expr.(*pyriteCallExpr)
+	if !ok {
+		return c.emitStatement(lineNo, 0, renderPyriteExpr(expr))
+	}
+	if callee, ok := call.Callee.(*pyriteNameExpr); ok && callee.Name == "print" {
+		if len(call.Args) != 1 {
+			return fmt.Errorf("line %d: print expects 1 argument(s)", lineNo)
+		}
+		return c.emitPrintExpr(lineNo, call.Args[0])
+	}
+	code, _, err := c.exprAST(expr)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	c.body.WriteString(fmt.Sprintf("    %s;\n", code))
+	return nil
+}
+
+func (c *Compiler) compileIfAST(stmt *pyriteIfStmt, elseStmt pyriteStmt) error {
+	base := stmt.stmtBase()
+	if err := c.emitIfHeaderAST(base.Line, base.Indent, stmt.Condition); err != nil {
+		return err
+	}
+	if err := c.compileASTStatements(base.Children, c.mainIndent); err != nil {
+		return err
+	}
+	if elseStmt != nil {
+		elseBase := elseStmt.stmtBase()
+		if err := c.emitStatement(elseBase.Line, elseBase.Indent, elseBase.Text); err != nil {
+			return err
+		}
+		if err := c.compileASTStatements(elseBase.Children, c.mainIndent); err != nil {
+			return err
+		}
+	}
+	return c.closeBlock(base.Line)
+}
+
+func (c *Compiler) compileTryAST(stmt *pyriteControlStmt, exceptStmt pyriteStmt) error {
+	base := stmt.stmtBase()
+	if err := c.emitStatement(base.Line, base.Indent, base.Text); err != nil {
+		return err
+	}
+	if err := c.compileASTStatements(base.Children, c.mainIndent); err != nil {
+		return err
+	}
+	if exceptStmt == nil {
+		return c.closeBlock(base.Line)
+	}
+	exceptBase := exceptStmt.stmtBase()
+	if err := c.emitStatement(exceptBase.Line, exceptBase.Indent, exceptBase.Text); err != nil {
+		return err
+	}
+	if err := c.compileASTStatements(exceptBase.Children, c.mainIndent); err != nil {
+		return err
+	}
+	return c.closeBlock(exceptBase.Line)
+}
+
+func followingElse(stmts []pyriteStmt, index int) (pyriteStmt, bool) {
+	if index+1 >= len(stmts) {
+		return nil, false
+	}
+	ctrl, ok := stmts[index+1].(*pyriteControlStmt)
+	if ok && ctrl.Kind == "else" {
+		return stmts[index+1], true
+	}
+	return nil, false
+}
+
+func followingExcept(stmts []pyriteStmt, index int) (pyriteStmt, bool) {
+	if index+1 >= len(stmts) {
+		return nil, false
+	}
+	_, ok := stmts[index+1].(*pyriteControlStmt)
+	if ok && isExceptHeader(stmts[index+1].stmtBase().Text) {
+		return stmts[index+1], true
+	}
+	return nil, false
 }
 
 func (c *Compiler) compileLines(lines []sourceLine, baseIndent int) error {
@@ -693,20 +922,66 @@ func (c *Compiler) inferFunctionReturn(fn *functionDef) error {
 			continue
 		}
 		expr := strings.TrimSpace(strings.TrimPrefix(line.trimmed, "return "))
-		_, kind, err := c.expr(expr)
-		if err != nil {
+		if err := c.noteFunctionReturn(fn, line.lineNo, expr); err != nil {
 			c.types = oldTypes
-			return fmt.Errorf("line %d: %w", line.lineNo, err)
+			return err
 		}
-		if fn.returnType == "void" {
-			fn.returnType = kind
-		} else if !typesCompatible(fn.returnType, kind) {
-			c.types = oldTypes
-			return fmt.Errorf("line %d: function %s returns both %s and %s", line.lineNo, fn.name, fn.returnType, kind)
-		}
+	}
+	if err := c.inferInlineASTReturns(fn, fn.astBody); err != nil {
+		c.types = oldTypes
+		return err
 	}
 	c.types = oldTypes
 	return nil
+}
+
+func (c *Compiler) inferInlineASTReturns(fn *functionDef, stmts []pyriteStmt) error {
+	for _, stmt := range stmts {
+		switch node := stmt.(type) {
+		case *pyriteIfStmt:
+			if ret, ok := node.Inline.(*pyriteReturnStmt); ok {
+				if err := c.noteFunctionReturn(fn, ret.Line, returnExprText(ret)); err != nil {
+					return err
+				}
+			}
+		case *pyriteWhileStmt:
+			if ret, ok := node.Inline.(*pyriteReturnStmt); ok {
+				if err := c.noteFunctionReturn(fn, ret.Line, returnExprText(ret)); err != nil {
+					return err
+				}
+			}
+		case *pyriteCaseStmt:
+			if ret, ok := node.Inline.(*pyriteReturnStmt); ok {
+				if err := c.noteFunctionReturn(fn, ret.Line, returnExprText(ret)); err != nil {
+					return err
+				}
+			}
+		}
+		if err := c.inferInlineASTReturns(fn, stmt.stmtBase().Children); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Compiler) noteFunctionReturn(fn *functionDef, lineNo int, expr string) error {
+	if strings.TrimSpace(expr) == "" {
+		return nil
+	}
+	_, kind, err := c.expr(expr)
+	if err != nil {
+		return fmt.Errorf("line %d: %w", lineNo, err)
+	}
+	if fn.returnType == "void" {
+		fn.returnType = kind
+	} else if !typesCompatible(fn.returnType, kind) {
+		return fmt.Errorf("line %d: function %s returns both %s and %s", lineNo, fn.name, fn.returnType, kind)
+	}
+	return nil
+}
+
+func returnExprText(stmt *pyriteReturnStmt) string {
+	return strings.TrimSpace(strings.TrimPrefix(stmt.Text, "return"))
 }
 
 func copyStringMap(src map[string]string) map[string]string {

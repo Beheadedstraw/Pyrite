@@ -36,6 +36,7 @@ type Compiler struct {
 	nextTempID      int
 	currentFunction string
 	blockStack      []block
+	localDeclared   map[string]bool
 	body            bytes.Buffer
 }
 
@@ -64,6 +65,7 @@ type functionDef struct {
 	returnType   string
 	indent       int
 	body         []sourceLine
+	astBody      []pyriteStmt
 	nativeSymbol string
 }
 

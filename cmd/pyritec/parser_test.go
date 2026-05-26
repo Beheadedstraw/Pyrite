@@ -1,0 +1,331 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLexerEmitsIndentation(t *testing.T) {
+	source := "def main():\n    if True:\n        print(\"ok\")\n    return 0\n"
+	tokens, err := lexPyrite(source)
+	if err != nil {
+		t.Fatalf("lexPyrite failed: %v", err)
+	}
+	var indents, dedents int
+	for _, tok := range tokens {
+		if tok.Type == tokenIndent {
+			indents++
+		}
+		if tok.Type == tokenDedent {
+			dedents++
+		}
+	}
+	if indents != 2 || dedents != 2 {
+		t.Fatalf("indent/dedent mismatch: got %d/%d", indents, dedents)
+	}
+}
+
+func TestParserUnderstandsCompilerHelperShapes(t *testing.T) {
+	source := `
+class Token:
+    def __init__(self, kind: int, text: string):
+        self.kind = kind
+        self.text = text
+
+enum TokenKind:
+    IDENT
+    NUMBER
+    STRING = 10
+
+def main():
+    source: string = "name"
+    token: Token = Token(TokenKind.IDENT, source)
+    tokens: list[Token] = []
+    tokens = tokens.push(token)
+    print(tokens[0].text)
+    match token.kind:
+        case TokenKind.IDENT:
+            print("ident")
+        case _:
+            print("other")
+    return 0
+`
+	program, err := parsePyriteProgram(source)
+	if err != nil {
+		t.Fatalf("parsePyriteProgram failed: %v", err)
+	}
+	if len(program.Items) != 3 {
+		t.Fatalf("expected 3 top-level items, got %d", len(program.Items))
+	}
+	cls, ok := program.Items[0].(*pyriteClassDecl)
+	if !ok || cls.Name != "Token" || len(cls.Methods) != 1 {
+		t.Fatalf("unexpected class item: %#v", program.Items[0])
+	}
+	enum, ok := program.Items[1].(*pyriteEnumDecl)
+	if !ok || enum.Name != "TokenKind" || len(enum.Members) != 3 || enum.Members[2].Value != "10" {
+		t.Fatalf("unexpected enum item: %#v", program.Items[1])
+	}
+	fn, ok := program.Items[2].(*pyriteFunctionDecl)
+	if !ok || fn.Name != "main" || len(fn.Body) == 0 {
+		t.Fatalf("unexpected function item: %#v", program.Items[2])
+	}
+}
+
+func TestParserAcceptsInlineIfStatements(t *testing.T) {
+	source := `
+def state_name(state: int):
+    if state == 0: return "ready"
+    if state == 1:
+        return "running"
+    return "unknown"
+`
+	if _, err := parsePyriteProgram(source); err != nil {
+		t.Fatalf("parsePyriteProgram failed: %v", err)
+	}
+}
+
+func TestParserBuildsStructuredStatements(t *testing.T) {
+	source := `
+def total(items: list[int]):
+    out: int = 0
+    for item in items:
+        out = out + item
+    if out > 10: return out
+    return -1
+`
+	program, err := parsePyriteProgram(source)
+	if err != nil {
+		t.Fatalf("parsePyriteProgram failed: %v", err)
+	}
+	fn := program.Items[0].(*pyriteFunctionDecl)
+	if _, ok := fn.Body[0].(*pyriteVarStmt); !ok {
+		t.Fatalf("expected var statement, got %#v", fn.Body[0])
+	}
+	loop, ok := fn.Body[1].(*pyriteForStmt)
+	if !ok || loop.Target != "item" || len(loop.Children) != 1 {
+		t.Fatalf("expected for statement with one child, got %#v", fn.Body[1])
+	}
+	inlineIf, ok := fn.Body[2].(*pyriteIfStmt)
+	if !ok || inlineIf.Inline == nil {
+		t.Fatalf("expected inline if statement, got %#v", fn.Body[2])
+	}
+	if _, ok := inlineIf.Inline.(*pyriteReturnStmt); !ok {
+		t.Fatalf("expected inline return, got %#v", inlineIf.Inline)
+	}
+	if _, ok := fn.Body[3].(*pyriteReturnStmt); !ok {
+		t.Fatalf("expected return statement, got %#v", fn.Body[3])
+	}
+}
+
+func TestParserAttachesBlockChildren(t *testing.T) {
+	source := `
+def main():
+    value = 1
+    if value == 1:
+        return 1
+    return 0
+`
+	program, err := parsePyriteProgram(source)
+	if err != nil {
+		t.Fatalf("parsePyriteProgram failed: %v", err)
+	}
+	fn := program.Items[0].(*pyriteFunctionDecl)
+	ifBlock, ok := fn.Body[1].(*pyriteIfStmt)
+	if !ok {
+		t.Fatalf("expected if statement, got %#v", fn.Body[1])
+	}
+	if len(ifBlock.Children) != 1 {
+		t.Fatalf("expected one child in if block, got %d: %#v", len(ifBlock.Children), ifBlock.Children)
+	}
+	if _, ok := ifBlock.Children[0].(*pyriteReturnStmt); !ok {
+		t.Fatalf("expected return child, got %#v", ifBlock.Children[0])
+	}
+	if len(fn.Body) != 3 {
+		t.Fatalf("expected return after if to remain sibling, got body len %d", len(fn.Body))
+	}
+}
+
+func TestCompilerCollectsFromAST(t *testing.T) {
+	source := `
+enum Mode:
+    OFF
+    ON = 10
+
+def helper(value: int):
+    return value
+
+def main():
+    print(helper(Mode.ON))
+    return 0
+`
+	compiler := NewCompiler("test.pyr", "/tmp/test")
+	if err := compiler.collectSource(source, ""); err != nil {
+		t.Fatalf("collectSource failed: %v", err)
+	}
+	if compiler.enums["Mode"]["ON"] != 10 {
+		t.Fatalf("expected enum value from AST collector, got %#v", compiler.enums["Mode"])
+	}
+	if compiler.functions["helper"] == nil || compiler.functions["main"] == nil {
+		t.Fatalf("expected functions from AST collector, got %#v", compiler.functions)
+	}
+	if got := compiler.functions["helper"].body[0].trimmed; got != "return value" {
+		t.Fatalf("expected reconstructed source line, got %q", got)
+	}
+}
+
+func TestCompilerInfersInlineReturnFromAST(t *testing.T) {
+	source := `
+def digit(ch: string):
+    if ch == "0": return 0
+    if ch == "1": return 1
+`
+	compiler := NewCompiler("test.pyr", "/tmp/test")
+	if err := compiler.collectSource(source, ""); err != nil {
+		t.Fatalf("collectSource failed: %v", err)
+	}
+	compiler.globalTypes = copyStringMap(compiler.types)
+	fn := compiler.functions["digit"]
+	if err := compiler.inferFunctionReturn(fn); err != nil {
+		t.Fatalf("inferFunctionReturn failed: %v", err)
+	}
+	if fn.returnType != "int" {
+		t.Fatalf("expected int return type, got %q", fn.returnType)
+	}
+}
+
+func TestCompilerEmitsExpressionsFromAST(t *testing.T) {
+	source := `
+def plus(left: int, right: int):
+    return left + right
+
+def add(value: int):
+    out: int = plus(value, 2 * 3)
+    items: list[int] = [out, 4]
+    if out == 7:
+        return out
+    return -1
+
+def main():
+    print(add(1))
+    return 0
+`
+	compiler := NewCompiler("test.pyr", "/tmp/test")
+	if err := compiler.translate(source); err != nil {
+		t.Fatalf("translate failed: %v", err)
+	}
+	body := compiler.funcs.String()
+	if !strings.Contains(body, "out = pyrite_fn_plus(value, (2 * 3));") {
+		t.Fatalf("expected AST binary expression emission, got:\n%s", body)
+	}
+	if !strings.Contains(body, "items = pyrite_list_int_new((long[]){out, 4}, 2);") {
+		t.Fatalf("expected AST list literal emission, got:\n%s", body)
+	}
+	if !strings.Contains(body, "if (out == 7) {") {
+		t.Fatalf("expected AST condition emission, got:\n%s", body)
+	}
+	if !strings.Contains(body, "return (-1);") {
+		t.Fatalf("expected AST unary return emission, got:\n%s", body)
+	}
+}
+
+func TestCompilerEmitsMethodsAndIntrinsicsFromAST(t *testing.T) {
+	source := `
+def main():
+    name: string = "Ada"
+    trimmed = name.strip()
+    numbers: list[int] = [1, 2]
+    numbers = numbers.push(3)
+    first = numbers.get(0)
+    raw = bytes(numbers)
+    again = raw.to_string()
+    print(trimmed)
+    print(first)
+    print(again)
+    return 0
+`
+	compiler := NewCompiler("test.pyr", "/tmp/test")
+	if err := compiler.translate(source); err != nil {
+		t.Fatalf("translate failed: %v", err)
+	}
+	body := compiler.body.String()
+	for _, want := range []string{
+		"pyrite_string_strip(name)",
+		"pyrite_list_int_push(numbers, 3)",
+		"pyrite_list_int_get(numbers, 0)",
+		"pyrite_bytes_from_list(numbers)",
+		"pyrite_bytes_to_string(raw)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in AST emitted body, got:\n%s", want, body)
+		}
+	}
+}
+
+func TestCompilerClosesASTIfBlocks(t *testing.T) {
+	source := `
+def main():
+    value = 1
+    if value == 1:
+        return 1
+    return 0
+`
+	compiler := NewCompiler("test.pyr", "/tmp/test")
+	if err := compiler.translate(source); err != nil {
+		t.Fatalf("translate failed: %v", err)
+	}
+	body := compiler.body.String()
+	if !strings.Contains(body, "if (value == 1) {") ||
+		!strings.Contains(body, "return __pyrite_return;\n    }\n    int __pyrite_return = (int)(0);") {
+		t.Fatalf("expected if block to close before following return, got:\n%s", body)
+	}
+}
+
+func TestExpressionParserBuildsPrecedenceAndPostfixAST(t *testing.T) {
+	expr, err := parsePyriteExpression(`tokens[0].text + source.slice(0, 2)`)
+	if err != nil {
+		t.Fatalf("parse expression failed: %v", err)
+	}
+	binary, ok := expr.(*pyriteBinaryExpr)
+	if !ok || binary.Op != "+" {
+		t.Fatalf("expected top-level + binary expression, got %#v", expr)
+	}
+	left, ok := binary.Left.(*pyriteMemberExpr)
+	if !ok || left.Field != "text" {
+		t.Fatalf("expected indexed member on left, got %#v", binary.Left)
+	}
+	if _, ok := left.Base.(*pyriteIndexExpr); !ok {
+		t.Fatalf("expected member base to be an index expression, got %#v", left.Base)
+	}
+	right, ok := binary.Right.(*pyriteCallExpr)
+	if !ok || len(right.Args) != 2 {
+		t.Fatalf("expected method call with two args on right, got %#v", binary.Right)
+	}
+}
+
+func TestExpressionParserRejectsMalformedExpression(t *testing.T) {
+	_, err := parsePyriteExpression(`tokens[0.text`)
+	if err == nil {
+		t.Fatalf("expected malformed expression to fail")
+	}
+}
+
+func TestParserAcceptsExamplesAndStdlib(t *testing.T) {
+	roots := []string{"examples", "stdlib"}
+	for _, root := range roots {
+		matches, err := filepath.Glob(filepath.Join(root, "*.pyr"))
+		if err != nil {
+			t.Fatalf("glob failed: %v", err)
+		}
+		for _, path := range matches {
+			source, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			if _, err := parsePyriteProgram(string(source)); err != nil {
+				t.Fatalf("parse %s: %v", path, err)
+			}
+		}
+	}
+}
