@@ -57,9 +57,16 @@ func (p *pyriteExprParser) parseExpression(minPrec int) (pyriteExpr, error) {
 						return nil, err
 					}
 					call.Args = append(call.Args, arg)
-					if !p.match(tokenComma) {
+					if p.match(tokenComma) {
+						if p.at(tokenRParen) {
+							break
+						}
+						continue
+					}
+					if !p.at(tokenRParen) {
 						break
 					}
+					break
 				}
 			}
 			if _, err := p.expect(tokenRParen, "expected ) after call arguments"); err != nil {
@@ -144,9 +151,16 @@ func (p *pyriteExprParser) parsePrefix() (pyriteExpr, error) {
 					return nil, err
 				}
 				list.Items = append(list.Items, item)
-				if !p.match(tokenComma) {
+				if p.match(tokenComma) {
+					if p.at(tokenRBracket) {
+						break
+					}
+					continue
+				}
+				if !p.at(tokenRBracket) {
 					break
 				}
+				break
 			}
 		}
 		if _, err := p.expect(tokenRBracket, "expected ] after list literal"); err != nil {
@@ -169,9 +183,16 @@ func (p *pyriteExprParser) parsePrefix() (pyriteExpr, error) {
 					return nil, err
 				}
 				obj.Entries = append(obj.Entries, pyriteObjectEntry{Key: key, Value: value})
-				if !p.match(tokenComma) {
+				if p.match(tokenComma) {
+					if p.at(tokenRBrace) {
+						break
+					}
+					continue
+				}
+				if !p.at(tokenRBrace) {
 					break
 				}
+				break
 			}
 		}
 		if _, err := p.expect(tokenRBrace, "expected } after object literal"); err != nil {

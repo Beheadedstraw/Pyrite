@@ -87,6 +87,48 @@ def state_name(state: int):
 	}
 }
 
+func TestParserAcceptsMultilineExpressions(t *testing.T) {
+	source := `
+def add(left: int, right: int):
+    return left + right
+
+def main():
+    values: list[int] = [
+        1,
+        2,
+        3,
+    ]
+    obj = {
+        "name": "Ada",
+        "kind": "compiler",
+    }
+    total: int = add(
+        values[0],
+        values[1],
+    )
+    print(obj.get("name"))
+    return total
+`
+	program, err := parsePyriteProgram(source)
+	if err != nil {
+		t.Fatalf("parsePyriteProgram failed: %v", err)
+	}
+	mainFn := program.Items[1].(*pyriteFunctionDecl)
+	if len(mainFn.Body) != 5 {
+		t.Fatalf("expected 5 main statements, got %d: %#v", len(mainFn.Body), mainFn.Body)
+	}
+	values := mainFn.Body[0].(*pyriteVarStmt)
+	list, ok := values.Value.(*pyriteListExpr)
+	if !ok || len(list.Items) != 3 {
+		t.Fatalf("expected multiline list literal, got %#v", values.Value)
+	}
+	callStmt := mainFn.Body[2].(*pyriteVarStmt)
+	call, ok := callStmt.Value.(*pyriteCallExpr)
+	if !ok || len(call.Args) != 2 {
+		t.Fatalf("expected multiline call expression, got %#v", callStmt.Value)
+	}
+}
+
 func TestParserBuildsStructuredStatements(t *testing.T) {
 	source := `
 def total(items: list[int]):

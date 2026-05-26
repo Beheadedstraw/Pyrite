@@ -41,6 +41,7 @@ type pyriteToken struct {
 func lexPyrite(source string) ([]pyriteToken, error) {
 	var tokens []pyriteToken
 	indents := []int{0}
+	depth := 0
 	lines := strings.Split(strings.ReplaceAll(source, "\r\n", "\n"), "\n")
 	for lineIndex, raw := range lines {
 		lineNo := lineIndex + 1
@@ -48,16 +49,18 @@ func lexPyrite(source string) ([]pyriteToken, error) {
 			continue
 		}
 		indent := countIndent(raw)
-		if indent > indents[len(indents)-1] {
-			indents = append(indents, indent)
-			tokens = append(tokens, pyriteToken{Type: tokenIndent, Lexeme: raw[:indent], Line: lineNo, Column: 1})
-		} else {
-			for indent < indents[len(indents)-1] {
-				indents = indents[:len(indents)-1]
-				tokens = append(tokens, pyriteToken{Type: tokenDedent, Line: lineNo, Column: indent + 1})
-			}
-			if indent != indents[len(indents)-1] {
-				return nil, fmt.Errorf("line %d: inconsistent indentation", lineNo)
+		if depth == 0 {
+			if indent > indents[len(indents)-1] {
+				indents = append(indents, indent)
+				tokens = append(tokens, pyriteToken{Type: tokenIndent, Lexeme: raw[:indent], Line: lineNo, Column: 1})
+			} else {
+				for indent < indents[len(indents)-1] {
+					indents = indents[:len(indents)-1]
+					tokens = append(tokens, pyriteToken{Type: tokenDedent, Line: lineNo, Column: indent + 1})
+				}
+				if indent != indents[len(indents)-1] {
+					return nil, fmt.Errorf("line %d: inconsistent indentation", lineNo)
+				}
 			}
 		}
 		lineTokens, err := lexPyriteLine(raw[indent:], lineNo, indent+1)
@@ -65,7 +68,16 @@ func lexPyrite(source string) ([]pyriteToken, error) {
 			return nil, err
 		}
 		tokens = append(tokens, lineTokens...)
-		tokens = append(tokens, pyriteToken{Type: tokenNewline, Line: lineNo, Column: len(raw) + 1})
+		depth += pyriteLineDepthDelta(lineTokens)
+		if depth < 0 {
+			return nil, fmt.Errorf("line %d: unmatched closing delimiter", lineNo)
+		}
+		if depth == 0 {
+			tokens = append(tokens, pyriteToken{Type: tokenNewline, Line: lineNo, Column: len(raw) + 1})
+		}
+	}
+	if depth != 0 {
+		return nil, fmt.Errorf("line %d: unterminated multiline expression", len(lines))
 	}
 	for len(indents) > 1 {
 		indents = indents[:len(indents)-1]
@@ -73,6 +85,19 @@ func lexPyrite(source string) ([]pyriteToken, error) {
 	}
 	tokens = append(tokens, pyriteToken{Type: tokenEOF, Line: len(lines), Column: 1})
 	return tokens, nil
+}
+
+func pyriteLineDepthDelta(tokens []pyriteToken) int {
+	delta := 0
+	for _, tok := range tokens {
+		switch tok.Type {
+		case tokenLParen, tokenLBracket, tokenLBrace:
+			delta++
+		case tokenRParen, tokenRBracket, tokenRBrace:
+			delta--
+		}
+	}
+	return delta
 }
 
 func lexPyriteLine(line string, lineNo, baseColumn int) ([]pyriteToken, error) {
