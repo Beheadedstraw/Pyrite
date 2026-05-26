@@ -215,7 +215,7 @@ var pyriteKeywords = map[string]bool{
 	"for": true, "in": true, "foreach": true, "switch": true, "match": true,
 	"case": true, "default": true, "try": true, "except": true, "raise": true,
 	"return": true, "async": true, "true": true, "false": true, "True": true,
-	"False": true, "None": true,
+	"False": true, "None": true, "not": true,
 }
 
 var pyriteSingleCharTokens = map[byte]pyriteTokenType{

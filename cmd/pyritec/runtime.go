@@ -96,6 +96,8 @@ static PyriteAnyList pyrite_list_any_copy(PyriteAnyList list);
 static PyriteAnyList *pyrite_list_any_box(PyriteAnyList list);
 static char *pyrite_list_any_string(PyriteAnyList *list);
 static char *pyrite_fmt(const char *fmt, ...);
+static int pyrite_argc = 0;
+static char **pyrite_argv = NULL;
 static int pyrite_class_object_keeps(PyriteClassObject *obj, void *ptr);
 
 typedef struct {
@@ -319,6 +321,19 @@ static char *pyrite_promote_string(const char *s) {
     char *out = pyrite_malloc(n + 1);
     if (!out) return "";
     memcpy(out, s, n + 1);
+    return out;
+}
+
+static char *pyrite_string_concat(const char *left, const char *right) {
+    if (!left) left = "";
+    if (!right) right = "";
+    size_t left_len = strlen(left);
+    size_t right_len = strlen(right);
+    char *out = pyrite_malloc(left_len + right_len + 1);
+    if (!out) return "";
+    memcpy(out, left, left_len);
+    memcpy(out + left_len, right, right_len);
+    out[left_len + right_len] = '\0';
     return out;
 }
 
@@ -1350,6 +1365,15 @@ static char *pyrite_fmt(const char *fmt, ...) {
 static void pyrite_print_str(const char *s) { puts(s ? s : ""); }
 static void pyrite_print_int(long v) { printf("%ld\n", v); }
 static void pyrite_print_float(double v) { printf("%g\n", v); }
+
+static long pyrite_arg_count(void) {
+    return pyrite_argc > 0 ? (long)pyrite_argc : 0;
+}
+
+static char *pyrite_arg(long index) {
+    if (index < 0 || index >= pyrite_argc || !pyrite_argv) return "";
+    return pyrite_argv[index] ? pyrite_argv[index] : "";
+}
 
 static int pyrite_ascii_space(unsigned char ch) {
     return ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' || ch == '\v' || ch == '\f';

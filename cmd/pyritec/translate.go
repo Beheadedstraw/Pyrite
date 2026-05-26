@@ -69,10 +69,11 @@ func (c *Compiler) collectTopLevelItem(item pyriteTopLevel, moduleName string) e
 		}
 		return c.addFunction(fn, node.Line)
 	case *pyriteClassDecl:
+		className := node.Name
 		if moduleName != "" {
-			return fmt.Errorf("line %d: module classes are not supported yet", node.Line)
+			className = moduleName + "." + node.Name
 		}
-		cls := &classDef{name: node.Name, indent: node.Indent, fields: map[string]string{}, methods: map[string]*functionDef{}}
+		cls := &classDef{name: className, indent: node.Indent, fields: map[string]string{}, methods: map[string]*functionDef{}}
 		if _, exists := c.classes[cls.name]; exists {
 			return fmt.Errorf("line %d: duplicate class %s", node.Line, cls.name)
 		}
@@ -307,10 +308,15 @@ func (c *Compiler) inferClassFields() error {
 
 func (c *Compiler) inferClassFieldsFromStmt(cls *classDef, stmt pyriteStmt) error {
 	switch node := stmt.(type) {
+	case *pyriteVarStmt:
+		return c.noteFunctionBinding(node.Line, node.Name, node.Type, node.Value)
 	case *pyriteAssignStmt:
 		target, ok := assignmentTargetName(node.TargetExpr)
-		if !ok || !strings.HasPrefix(target, "self.") {
+		if !ok {
 			break
+		}
+		if !strings.HasPrefix(target, "self.") {
+			return c.noteFunctionBinding(node.Line, target, "", node.Value)
 		}
 		field := strings.TrimSpace(strings.TrimPrefix(target, "self."))
 		if field == "" || strings.ContainsAny(field, ". \t") {
@@ -370,7 +376,9 @@ func (c *Compiler) compileMain(fn *functionDef) error {
 	if c.target == "freestanding" {
 		c.body.WriteString("long kmain(void) {\n")
 	} else {
-		c.body.WriteString("int main(void) {\n")
+		c.body.WriteString("int main(int argc, char **argv) {\n")
+		c.body.WriteString("    pyrite_argc = argc;\n")
+		c.body.WriteString("    pyrite_argv = argv;\n")
 	}
 	c.body.WriteString("    char *__pyrite_error __attribute__((unused)) = NULL;\n")
 	if err := c.predeclareFunctionLocals(fn); err != nil {
@@ -780,9 +788,12 @@ func (c *Compiler) writeConstructorParams(buf *bytes.Buffer, init *functionDef) 
 
 func (c *Compiler) inferFunctionReturn(fn *functionDef) error {
 	oldTypes := c.types
+	oldCurrentFunction := c.currentFunction
 	defer func() {
 		c.types = oldTypes
+		c.currentFunction = oldCurrentFunction
 	}()
+	c.currentFunction = fn.name
 	c.types = copyStringMap(c.globalTypes)
 	for _, param := range fn.params {
 		if fn.paramTypes[param] == "" {

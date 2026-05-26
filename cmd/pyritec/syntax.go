@@ -12,7 +12,7 @@ func normalizeType(raw string) (string, error) {
 		innerRaw := cleaned[5 : len(cleaned)-1]
 		inner, err := normalizeType(innerRaw)
 		if err != nil {
-			if isIdentifier(innerRaw) {
+			if isQualifiedIdentifier(innerRaw) {
 				return "list:" + classKind(innerRaw), nil
 			}
 			return "", err
@@ -29,7 +29,7 @@ func normalizeType(raw string) (string, error) {
 		innerRaw := cleaned[5 : len(cleaned)-1]
 		inner, err := normalizeType(innerRaw)
 		if err != nil {
-			if isIdentifier(innerRaw) {
+			if isQualifiedIdentifier(innerRaw) {
 				return "dict:" + classKind(innerRaw), nil
 			}
 			return "", err
@@ -75,7 +75,7 @@ func normalizeType(raw string) (string, error) {
 	case "object":
 		return "object", nil
 	default:
-		if isIdentifier(cleaned) {
+		if isQualifiedIdentifier(cleaned) {
 			return classKind(cleaned), nil
 		}
 		return "", fmt.Errorf("unsupported type annotation %q", strings.TrimSpace(raw))
@@ -166,6 +166,19 @@ func isIdentifier(s string) bool {
 			continue
 		}
 		return false
+	}
+	return true
+}
+
+func isQualifiedIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	parts := strings.Split(s, ".")
+	for _, part := range parts {
+		if !isIdentifier(part) {
+			return false
+		}
 	}
 	return true
 }

@@ -82,6 +82,15 @@ static PyriteAnyList pyrite_list_any_copy(PyriteAnyList list);
 static PyriteAnyList *pyrite_list_any_box(PyriteAnyList list);
 static char *pyrite_list_any_string(PyriteAnyList *list);
 
+static long pyrite_arg_count(void) {
+    return 0;
+}
+
+static char *pyrite_arg(long index) {
+    (void)index;
+    return "";
+}
+
 typedef struct {
     char *name;
     PyriteAny value;

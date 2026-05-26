@@ -1,0 +1,64 @@
+import lexer
+
+class EmitState:
+    def __init__(self):
+        self.out = ""
+        self.in_main = False
+        self.saw_main = False
+        self.emitted_return = False
+
+    def write(self, value: string):
+        self.out = self.out + value
+
+    def text(self):
+        return self.out
+
+def emit_header(state: emitter.EmitState):
+    state.write("#include <stdio.h>\n")
+    state.write("#include <stdlib.h>\n\n")
+
+def emit_main_open(state: emitter.EmitState):
+    state.saw_main = True
+    state.in_main = True
+    state.write("int main(void) {\n")
+
+def emit_main_close(state: emitter.EmitState):
+    if state.in_main:
+        if not state.emitted_return:
+            state.write("    return 0;\n")
+        state.write("}\n")
+        state.in_main = False
+
+def emit_print(state: emitter.EmitState, line: string):
+    text: string = lexer.between_first_quotes(line)
+    state.write("    puts(\"")
+    state.write(text)
+    state.write("\");\n")
+
+def emit_return(state: emitter.EmitState, line: string):
+    value: string = lexer.after_prefix(line, "return ").strip()
+    state.write("    return ")
+    state.write(value)
+    state.write(";\n")
+    state.emitted_return = True
+
+def compile_source(source: string):
+    cursor: lexer.SourceCursor = lexer.SourceCursor(source)
+    state: emitter.EmitState = EmitState()
+    emit_header(state)
+    while not cursor.done():
+        raw: string = cursor.next_line()
+        line: string = raw.strip()
+        if line.startswith("def main("):
+            emit_main_open(state)
+        else:
+            if state.in_main:
+                if line.startswith("print("):
+                    emit_print(state, line)
+                else:
+                    if line.startswith("return "):
+                        emit_return(state, line)
+    emit_main_close(state)
+    if not state.saw_main:
+        return ""
+    return state.text()

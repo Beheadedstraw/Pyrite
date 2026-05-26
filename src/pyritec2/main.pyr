@@ -1,0 +1,30 @@
+import emitter
+import file
+import sys
+
+def usage():
+    print("usage: pyritec2 <input.pyr> -o <output.c>")
+    return 2
+
+def main():
+    if sys.arg_count() < 4:
+        return usage()
+    input_path: string = sys.arg(1)
+    output_flag: string = sys.arg(2)
+    output_path: string = sys.arg(3)
+    if output_flag != "-o":
+        return usage()
+
+    input_file: file = file.open(input_path, "r")
+    source: string = file.read_all(input_file)
+    generated: string = emitter.compile_source(source)
+    if generated.len() == 0:
+        print("pyritec2: missing or unsupported main")
+        return 1
+
+    output_file: file = file.open(output_path, "w")
+    file.write(output_file, generated)
+    flushed: int = file.flush(output_file)
+    if flushed < 0:
+        return 1
+    return 0

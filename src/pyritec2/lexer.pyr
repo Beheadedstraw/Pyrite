@@ -1,0 +1,33 @@
+class SourceCursor:
+    def __init__(self, text: string):
+        self.text = text
+        self.pos = 0
+
+    def done(self):
+        return self.pos >= self.text.len()
+
+    def next_line(self):
+        if self.done():
+            return ""
+        start: int = self.pos
+        tail: string = self.text.slice(start, self.text.len())
+        offset: int = tail.find("\n")
+        if offset < 0:
+            self.pos = self.text.len()
+            return tail
+        line_end: int = start + offset
+        self.pos = line_end + 1
+        return self.text.slice(start, line_end)
+
+def after_prefix(value: string, prefix: string):
+    return value.slice(prefix.len(), value.len())
+
+def between_first_quotes(value: string):
+    first: int = value.find("\"")
+    if first < 0:
+        return ""
+    tail: string = value.slice(first + 1, value.len())
+    second: int = tail.find("\"")
+    if second < 0:
+        return ""
+    return tail.slice(0, second)

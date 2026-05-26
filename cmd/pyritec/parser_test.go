@@ -494,7 +494,7 @@ def main():
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected %q error, got %v", tc.want, err)
 			}
-			if compiler.body.Len() != 0 && !strings.Contains(compiler.body.String(), "int main(void)") {
+			if compiler.body.Len() != 0 && !strings.Contains(compiler.body.String(), "int main(") {
 				t.Fatalf("expected semantic error before full emission, got body:\n%s", compiler.body.String())
 			}
 		})
@@ -527,6 +527,17 @@ func TestExpressionParserRejectsMalformedExpression(t *testing.T) {
 	_, err := parsePyriteExpression(`tokens[0.text`)
 	if err == nil {
 		t.Fatalf("expected malformed expression to fail")
+	}
+}
+
+func TestExpressionParserSupportsPythonNot(t *testing.T) {
+	expr, err := parsePyriteExpression(`not state.done()`)
+	if err != nil {
+		t.Fatalf("parse expression failed: %v", err)
+	}
+	unary, ok := expr.(*pyriteUnaryExpr)
+	if !ok || unary.Op != "not" {
+		t.Fatalf("expected unary not expression, got %#v", expr)
 	}
 }
 

@@ -20,6 +20,9 @@ func (c *Compiler) exprAST(expr pyriteExpr) (string, string, error) {
 		if node.Op == "-" && (kind == "int" || kind == "float") {
 			return fmt.Sprintf("(-%s)", code), kind, nil
 		}
+		if node.Op == "not" {
+			return fmt.Sprintf("(!(%s))", code), "bool", nil
+		}
 		return "", "", fmt.Errorf("unsupported unary operator %s", node.Op)
 	case *pyriteBinaryExpr:
 		return c.binaryExprAST(node)
@@ -166,6 +169,7 @@ func (c *Compiler) callExprAST(expr *pyriteCallExpr) (string, string, error) {
 	}
 	calleeName, hasCalleeName := callNameExpr(expr.Callee)
 	if hasCalleeName {
+		calleeName = c.resolveCallableName(calleeName)
 		if _, exists := c.classes[calleeName]; exists {
 			return c.classConstructorCallExprAST(calleeName, expr.Args)
 		}
@@ -173,9 +177,6 @@ func (c *Compiler) callExprAST(expr *pyriteCallExpr) (string, string, error) {
 			code, kind, err := c.userFunctionCallExprAST(0, calleeName, expr.Args)
 			if err != nil {
 				return "", "", err
-			}
-			if kind == "void" {
-				return "", "", fmt.Errorf("function %s does not return a value", calleeName)
 			}
 			return code, kind, nil
 		}
@@ -189,6 +190,43 @@ func (c *Compiler) callExprAST(expr *pyriteCallExpr) (string, string, error) {
 		return code, kind, err
 	}
 	return "", "", fmt.Errorf("unsupported call %s", describePyriteExpr(expr))
+}
+
+func (c *Compiler) resolveCallableName(name string) string {
+	if strings.Contains(name, ".") {
+		return name
+	}
+	if c.classes[name] != nil || c.functions[name] != nil {
+		return name
+	}
+	module := c.currentModuleName()
+	if module == "" {
+		return name
+	}
+	qualified := module + "." + name
+	if c.classes[qualified] != nil || c.functions[qualified] != nil {
+		return qualified
+	}
+	return name
+}
+
+func (c *Compiler) currentModuleName() string {
+	if c.currentFunction == "" {
+		return ""
+	}
+	lastDot := strings.LastIndex(c.currentFunction, ".")
+	if lastDot < 0 {
+		return ""
+	}
+	prefix := c.currentFunction[:lastDot]
+	if c.classes[prefix] != nil {
+		moduleDot := strings.LastIndex(prefix, ".")
+		if moduleDot < 0 {
+			return ""
+		}
+		return prefix[:moduleDot]
+	}
+	return prefix
 }
 
 func (c *Compiler) methodCallExprAST(member *pyriteMemberExpr, args []pyriteExpr) (string, string, bool, error) {
