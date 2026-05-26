@@ -190,9 +190,9 @@ func (c *Compiler) collectEnum(decl *pyriteEnumDecl) error {
 	for _, member := range decl.Members {
 		value := next
 		if member.HasValue {
-			parsed, err := strconv.Atoi(member.Value)
+			parsed, err := evalEnumIntExpr(member.ValueExpr)
 			if err != nil {
-				return fmt.Errorf("line %d: enum value must be an integer", member.Line)
+				return fmt.Errorf("line %d: %w", member.Line, err)
 			}
 			value = parsed
 		}
@@ -207,6 +207,54 @@ func (c *Compiler) collectEnum(decl *pyriteEnumDecl) error {
 		next = value + 1
 	}
 	return nil
+}
+
+func evalEnumIntExpr(expr pyriteExpr) (int, error) {
+	switch node := expr.(type) {
+	case *pyriteLiteralExpr:
+		if node.Kind != "number" {
+			return 0, fmt.Errorf("enum value must be an integer")
+		}
+		value, err := strconv.Atoi(node.Value)
+		if err != nil {
+			return 0, fmt.Errorf("enum value must be an integer")
+		}
+		return value, nil
+	case *pyriteUnaryExpr:
+		right, err := evalEnumIntExpr(node.Right)
+		if err != nil {
+			return 0, err
+		}
+		switch node.Op {
+		case "-":
+			return -right, nil
+		case "+":
+			return right, nil
+		default:
+			return 0, fmt.Errorf("enum value uses unsupported operator %s", node.Op)
+		}
+	case *pyriteBinaryExpr:
+		left, err := evalEnumIntExpr(node.Left)
+		if err != nil {
+			return 0, err
+		}
+		right, err := evalEnumIntExpr(node.Right)
+		if err != nil {
+			return 0, err
+		}
+		switch node.Op {
+		case "+":
+			return left + right, nil
+		case "-":
+			return left - right, nil
+		case "*":
+			return left * right, nil
+		default:
+			return 0, fmt.Errorf("enum value uses unsupported operator %s", node.Op)
+		}
+	default:
+		return 0, fmt.Errorf("enum value must be an integer")
+	}
 }
 
 func parseClassDef(lineNo int, trimmed string, indent int) (*classDef, error) {

@@ -65,10 +65,11 @@ type pyriteEnumDecl struct {
 func (*pyriteEnumDecl) topLevelNode() {}
 
 type pyriteEnumMember struct {
-	Name     string
-	Value    string
-	HasValue bool
-	Line     int
+	Name      string
+	Value     string
+	ValueExpr pyriteExpr
+	HasValue  bool
+	Line      int
 }
 
 type pyriteStmt interface {

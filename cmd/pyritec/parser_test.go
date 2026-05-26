@@ -38,6 +38,7 @@ enum TokenKind:
     IDENT
     NUMBER
     STRING = 10
+    END = 10 + 2
 
 def main():
     source: string = "name"
@@ -64,7 +65,7 @@ def main():
 		t.Fatalf("unexpected class item: %#v", program.Items[0])
 	}
 	enum, ok := program.Items[1].(*pyriteEnumDecl)
-	if !ok || enum.Name != "TokenKind" || len(enum.Members) != 3 || enum.Members[2].Value != "10" {
+	if !ok || enum.Name != "TokenKind" || len(enum.Members) != 4 || enum.Members[2].Value != "10" || enum.Members[3].ValueExpr == nil {
 		t.Fatalf("unexpected enum item: %#v", program.Items[1])
 	}
 	fn, ok := program.Items[2].(*pyriteFunctionDecl)
@@ -152,6 +153,7 @@ func TestCompilerCollectsFromAST(t *testing.T) {
 enum Mode:
     OFF
     ON = 10
+    AUTO = 10 + 2
 
 def helper(value: int):
     return value
@@ -166,6 +168,9 @@ def main():
 	}
 	if compiler.enums["Mode"]["ON"] != 10 {
 		t.Fatalf("expected enum value from AST collector, got %#v", compiler.enums["Mode"])
+	}
+	if compiler.enums["Mode"]["AUTO"] != 12 {
+		t.Fatalf("expected enum expression value from AST collector, got %#v", compiler.enums["Mode"])
 	}
 	if compiler.functions["helper"] == nil || compiler.functions["main"] == nil {
 		t.Fatalf("expected functions from AST collector, got %#v", compiler.functions)

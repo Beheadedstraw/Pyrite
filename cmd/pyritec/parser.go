@@ -267,10 +267,12 @@ func (p *pyriteParser) parseEnum() (*pyriteEnumDecl, error) {
 			if err != nil {
 				return nil, err
 			}
-			if err := validatePyriteExpressionTokens(value); err != nil {
+			valueExpr, err := parsePyriteExpressionTokens(value)
+			if err != nil {
 				return nil, err
 			}
 			item.Value = tokensText(value)
+			item.ValueExpr = valueExpr
 			item.HasValue = true
 		} else if err := p.expectLineEnd(); err != nil {
 			return nil, err
