@@ -35,7 +35,16 @@ lists, and typed lists such as `list[string]` or `list[Token]`:
   lists
 
 `list[any]` and typed non-int lists currently store ints, floats, bools,
-strings, bytes, and class objects.
+strings, bytes, class objects, and nested list values.
+
+Typed class lists can be used for compiler-style data:
+
+```pyrite
+tokens: list[Token] = []
+tokens = tokens.push(Token(TokenKind.IDENT, "name"))
+first: Token = tokens[0]
+print(first.text)
+```
 
 List update operations are persistent-style in this compiler generation. Assign
 the returned list back when you want to keep the change:

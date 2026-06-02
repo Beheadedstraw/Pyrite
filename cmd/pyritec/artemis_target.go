@@ -4,32 +4,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 )
-
-var artemisPrintRE = regexp.MustCompile(`^\s*print\("([^"]*)"\)\s*$`)
-var artemisReturnRE = regexp.MustCompile(`^\s*return\s+([0-9]+)\s*$`)
 
 func CompileArtemisProgram(inputPath, outPath string) error {
 	data, err := os.ReadFile(inputPath)
 	if err != nil {
 		return err
 	}
+	program, err := parsePyriteProgram(string(data))
+	if err != nil {
+		return err
+	}
 	name := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
 	exitCode := 0
-	for _, line := range strings.Split(string(data), "\n") {
-		if m := artemisPrintRE.FindStringSubmatch(line); m != nil {
-			return fmt.Errorf("artemis native target does not support print yet: %q", m[1])
+	for _, item := range program.Items {
+		fn, ok := item.(*pyriteFunctionDecl)
+		if !ok || fn.Name != "main" {
+			continue
 		}
-		if m := artemisReturnRE.FindStringSubmatch(line); m != nil {
-			value, err := strconv.Atoi(m[1])
-			if err != nil {
-				return err
-			}
-			exitCode = value
+		value, err := artemisExitCodeFromStmts(fn.Body)
+		if err != nil {
+			return err
 		}
+		exitCode = value
 	}
 	image := []byte("ARTNAT1")
 	image = appendStringInstruction(image, 4, name)
@@ -41,6 +39,42 @@ func CompileArtemisProgram(inputPath, outPath string) error {
 	}
 	image = appendNativeExitProgram(image, byte(exitCode))
 	return os.WriteFile(outPath, image, 0o644)
+}
+
+func artemisExitCodeFromStmts(stmts []pyriteStmt) (int, error) {
+	exitCode := 0
+	for _, stmt := range stmts {
+		switch node := stmt.(type) {
+		case *pyriteExprStmt:
+			if call, ok := node.Expr.(*pyriteCallExpr); ok {
+				if name, ok := callNameExpr(call.Callee); ok && name == "print" {
+					return 0, fmt.Errorf("artemis native target does not support print yet")
+				}
+			}
+		case *pyriteReturnStmt:
+			value, err := artemisConstInt(node.Value)
+			if err != nil {
+				return 0, err
+			}
+			exitCode = value
+		}
+		if len(stmt.stmtBase().Children) > 0 {
+			value, err := artemisExitCodeFromStmts(stmt.stmtBase().Children)
+			if err != nil {
+				return 0, err
+			}
+			exitCode = value
+		}
+	}
+	return exitCode, nil
+}
+
+func artemisConstInt(expr pyriteExpr) (int, error) {
+	value, err := evalEnumIntExpr(expr)
+	if err != nil {
+		return 0, fmt.Errorf("artemis native target return must be an integer literal")
+	}
+	return value, nil
 }
 
 func appendStringInstruction(image []byte, opcode byte, value string) []byte {

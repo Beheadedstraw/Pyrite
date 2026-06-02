@@ -24,6 +24,9 @@ type Compiler struct {
 	functionOrder []string
 	classes       map[string]*classDef
 	enums         map[string]map[string]int
+	modules       map[string]*pyriteModule
+	moduleOrder   []string
+	hir           *pyriteHIRProgram
 	defers        []string
 	globals       bytes.Buffer
 	prototypes    bytes.Buffer
@@ -36,6 +39,7 @@ type Compiler struct {
 	nextTempID      int
 	currentFunction string
 	blockStack      []block
+	localDeclared   map[string]bool
 	body            bytes.Buffer
 }
 
@@ -50,20 +54,13 @@ type block struct {
 	postCleanups []string
 }
 
-type sourceLine struct {
-	lineNo  int
-	raw     string
-	trimmed string
-	indent  int
-}
-
 type functionDef struct {
 	name         string
 	params       []string
 	paramTypes   map[string]string
 	returnType   string
 	indent       int
-	body         []sourceLine
+	astBody      []pyriteStmt
 	nativeSymbol string
 }
 
@@ -72,6 +69,12 @@ type classDef struct {
 	indent  int
 	fields  map[string]string
 	methods map[string]*functionDef
+}
+
+type pyriteModule struct {
+	name    string
+	path    string
+	program *pyriteProgram
 }
 
 func NewCompiler(srcPath, outPath string) *Compiler {
@@ -87,6 +90,7 @@ func NewCompiler(srcPath, outPath string) *Compiler {
 		functions:     map[string]*functionDef{},
 		classes:       map[string]*classDef{},
 		enums:         map[string]map[string]int{},
+		modules:       map[string]*pyriteModule{},
 	}
 }
 

@@ -63,6 +63,13 @@ Supported comparison operators:
 - `>`
 - `>=`
 
+Unary `not` is supported:
+
+```pyrite
+if not cursor.done():
+    print("more input")
+```
+
 ## While
 
 ```pyrite

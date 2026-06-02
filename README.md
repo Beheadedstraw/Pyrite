@@ -4,6 +4,12 @@ Pyrite is a Python-shaped language that compiles to native code instead of being
 interpreted. The active compiler is now written in Go. It transpiles Pyrite to C,
 then invokes `gcc` to produce a native executable.
 
+The compiler now uses a real lexer/parser and an AST-driven pipeline with
+explicit load/bind, analyze, HIR, and emit phases. A Pyrite-written bootstrap
+compiler seed lives under [src/pyritec2](src/pyritec2); it is intentionally
+small, but it is compiled by Pyrite and can emit C for the current starter
+subset.
+
 The older assembly compiler files remain under `src/` as historical bootstrap
 work, but `make` builds [cmd/pyritec](cmd/pyritec).
 
@@ -32,17 +38,25 @@ def main():
 Supported today:
 
 - `import name`, loading sibling modules or `stdlib/name.pyr`
-- `def main():` and simple helper functions like `def testr(m):`
+- module-local functions and classes, including classes declared in imported
+  modules
+- `def main():` and helper functions like `def testr(m):`
 - inferred variables and optional static annotations like `name: string = "Ada"`
 - `int`, `float`, `string`, `bool`, `bytes`, `any`, `list[int]`, `list[any]`, `list[T]`, `dict`, `dict[T]`, `set`, builders, resources, and class annotations
 - immutable bindings with `const`
 - module globals with `global`
+- `None` for nullable class fields
+- Python-style unary `not`
 - integer addition
 - integer lists and `for item in list:`
 - `foreach(items):`, `foreach(items, item_name):`, and `foreach([1, 2, 3]):` list iteration
 - mixed `list[any]` lists and typed lists/dicts with primitive or class values
+- class fields that hold typed lists, including `list[Token]`
 - object-shaped values with inherited defaults from imported Pyrite modules
 - first-version classes with `__init__`, fields, and methods
+- typed class lists such as `tokens: list[Token] = []`
+- indexed member expressions like `tokens[0].text`
+- enums with explicit or expression-based integer values
 - `if` / `else`, `while`, `switch`, and `match` comparisons
 - `try` / `except`, string `raise`, and catchable `file.open` failures
 - standard `json` and `xml` modules for first-version data format handling
@@ -57,12 +71,14 @@ Supported today:
 - stdlib-backed `random.int`
 - `random.seed`, `random.float`, and `random.choice`
 - stdlib-backed `time.sleep(seconds)`
-- string methods like `value.strip()`, `value.upper()`, `value.replace(...)`, `value.slice(...)`, and `value[index]`
+- process arguments through `sys.arg_count()` and `sys.arg(index)`
+- string methods like `value.strip()`, `value.upper()`, `value.replace(...)`, `value.slice(...)`, `value[index]`, `value.byte(index)`, `value.to_int()`, `value.is_digit()`, `value.is_alpha()`, `value.is_alnum()`, and `value.is_space()`
 - numeric methods like `value.abs()`, `value.clamp(...)`, `ratio.round()`
 - `native def` declarations for runtime-backed Pyrite modules
 - `return <integer expression>` from `main` and helper functions
 - bare helper calls like `testr(print_lock)`
 - helper calls in expressions, such as `value = answer()`
+- multiline expressions inside `()`, `[]`, and `{}`, including trailing commas
 - blank lines and `#` comments
 
 Unsupported syntax now fails instead of being silently ignored.
@@ -116,6 +132,21 @@ build/pyritec --target freestanding examples/kernel_hello.pyr -o build/kernel_he
 The freestanding target emits `long kmain(void)` and a tiny no-libc runtime.
 See [docs/freestanding.md](docs/freestanding.md).
 
+## Pyrite-Written Compiler Seed
+
+The repository now includes a Pyrite-written bootstrap compiler seed:
+
+```sh
+build/pyritec src/pyritec2/main.pyr -o build/pyritec2
+build/pyritec2 examples/hello.pyr -o build/hello.c
+gcc -std=c11 -Wall -Wextra -O2 -o build/hello-from-pyritec2 build/hello.c
+```
+
+`pyritec2` currently compiles a small subset: `import` skipping, `def main`,
+integer `const`, integer locals, integer assignment/arithmetic passthrough,
+`print("text")`, `print(value)`, and `return value`. This is the active
+self-hosting path, not a replacement for the Go compiler yet.
+
 ## Benchmarks
 
 Paired Pyrite/Python benchmark files live under [benchmarks](benchmarks/).
@@ -147,6 +178,8 @@ regex matched Ada: true
 exit=42
 ```
 
-The compiler is still intentionally small and line-oriented. The next milestone
-is a real lexer/parser so these features become general instead of pattern-based
-for the current syntax subset.
+The compiler is still intentionally small, but it is no longer line-oriented:
+the frontend now tokenizes, parses into AST nodes, performs semantic analysis,
+lowers into a first HIR layer, and emits C from structured compiler state. The
+next self-hosting milestone is growing `pyritec2` until it can compile its own
+modules.

@@ -36,8 +36,9 @@ def main():
 ```
 
 Current compiler-backed imports include `file`, `regex`, `random`, `routines`,
-`net`, `time`, and local modules such as `scoring`. Core functions such as
-`print` are available without an import.
+`net`, `time`, `sys`, and local modules such as `scoring`. Imported modules can
+define functions and classes. Core functions such as `print` are available
+without an import.
 
 Planned import forms:
 
@@ -76,6 +77,7 @@ out: file = file.open("score.txt", "w").defer()
 tcp: socket = net.tcp("127.0.0.1", 8080).defer()
 server: listener = net.listen("127.0.0.1", 8080).defer()
 lock: mux = mux()
+maybe_token: Token = None
 ```
 
 First-version annotations:
@@ -108,6 +110,25 @@ tokens: list[Token] = []
 by_name: dict[Token] = dict()
 ```
 
+`None` can initialize nullable class fields and annotated class variables. A
+field first assigned `None` can later take its concrete class type.
+
+Expressions can continue across physical lines while inside `()`, `[]`, or
+`{}`. Trailing commas are accepted in call arguments, list literals, and object
+literals:
+
+```pyrite
+tokens: list[Token] = [
+    Token(TokenKind.IDENT, "name"),
+    Token(TokenKind.NUMBER, "42"),
+]
+
+value = parse_call(
+    tokens[0],
+    tokens[1],
+)
+```
+
 ## Enums
 
 Enums define integer constants with dotted names:
@@ -124,7 +145,12 @@ kind: int = TokenKind.IDENT
 Members auto-increment from zero unless a value is assigned.
 
 Boolean literals accept `True` and `False`. Lowercase `true` and `false` are
-also accepted for now.
+also accepted for now. Unary `not` is supported for boolean-style checks:
+
+```pyrite
+if not cursor.done():
+    print("more input")
+```
 
 ## Constants And Globals
 

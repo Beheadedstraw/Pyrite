@@ -5,30 +5,6 @@ import (
 	"strings"
 )
 
-type bindingTarget struct {
-	name      string
-	annotated string
-}
-
-func parseBindingTarget(raw string) (bindingTarget, error) {
-	raw = strings.TrimSpace(raw)
-	if strings.Contains(raw, ".") {
-		return bindingTarget{name: raw}, nil
-	}
-
-	parts := strings.SplitN(raw, ":", 2)
-	if len(parts) == 1 {
-		return bindingTarget{name: raw}, nil
-	}
-
-	name := strings.TrimSpace(parts[0])
-	kind, err := normalizeType(parts[1])
-	if err != nil {
-		return bindingTarget{}, err
-	}
-	return bindingTarget{name: name, annotated: kind}, nil
-}
-
 func normalizeType(raw string) (string, error) {
 	cleaned := strings.ReplaceAll(strings.TrimSpace(raw), " ", "")
 	compact := strings.ToLower(cleaned)
@@ -36,7 +12,7 @@ func normalizeType(raw string) (string, error) {
 		innerRaw := cleaned[5 : len(cleaned)-1]
 		inner, err := normalizeType(innerRaw)
 		if err != nil {
-			if isIdentifier(innerRaw) {
+			if isQualifiedIdentifier(innerRaw) {
 				return "list:" + classKind(innerRaw), nil
 			}
 			return "", err
@@ -53,7 +29,7 @@ func normalizeType(raw string) (string, error) {
 		innerRaw := cleaned[5 : len(cleaned)-1]
 		inner, err := normalizeType(innerRaw)
 		if err != nil {
-			if isIdentifier(innerRaw) {
+			if isQualifiedIdentifier(innerRaw) {
 				return "dict:" + classKind(innerRaw), nil
 			}
 			return "", err
@@ -99,7 +75,7 @@ func normalizeType(raw string) (string, error) {
 	case "object":
 		return "object", nil
 	default:
-		if isIdentifier(cleaned) {
+		if isQualifiedIdentifier(cleaned) {
 			return classKind(cleaned), nil
 		}
 		return "", fmt.Errorf("unsupported type annotation %q", strings.TrimSpace(raw))
@@ -117,7 +93,10 @@ func typesCompatible(want, got string) bool {
 	if want == got {
 		return true
 	}
-	if want == "any" && (got == "int" || got == "float" || got == "bool" || got == "string" || got == "bytes" || isDictKind(got) || isClassKind(got)) {
+	if got == "none" && (want == "any" || want == "string" || isClassKind(want)) {
+		return true
+	}
+	if want == "any" && (got == "none" || got == "int" || got == "float" || got == "bool" || got == "string" || got == "bytes" || isListKind(got) || isDictKind(got) || isClassKind(got)) {
 		return true
 	}
 	if want == "list_any" && isListKind(got) {
@@ -191,7 +170,7 @@ func isIdentifier(s string) bool {
 	return true
 }
 
-func isCallName(s string) bool {
+func isQualifiedIdentifier(s string) bool {
 	if s == "" {
 		return false
 	}
@@ -202,42 +181,4 @@ func isCallName(s string) bool {
 		}
 	}
 	return true
-}
-
-func innerCall(s, name string) string {
-	s = strings.TrimSpace(s)
-	prefix := name + "("
-	return strings.TrimSuffix(strings.TrimPrefix(s, prefix), ")")
-}
-
-func splitArgs(s string) []string {
-	var args []string
-	var cur strings.Builder
-	depth := 0
-	inString := false
-	for i := 0; i < len(s); i++ {
-		ch := s[i]
-		if ch == '"' && (i == 0 || s[i-1] != '\\') {
-			inString = !inString
-		}
-		if !inString {
-			switch ch {
-			case '(', '[', '{':
-				depth++
-			case ')', ']', '}':
-				depth--
-			case ',':
-				if depth == 0 {
-					args = append(args, strings.TrimSpace(cur.String()))
-					cur.Reset()
-					continue
-				}
-			}
-		}
-		cur.WriteByte(ch)
-	}
-	if strings.TrimSpace(cur.String()) != "" {
-		args = append(args, strings.TrimSpace(cur.String()))
-	}
-	return args
 }

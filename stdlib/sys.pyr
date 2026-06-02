@@ -1,0 +1,4 @@
+# Runtime-backed process helpers.
+
+native def arg_count() -> int = pyrite_arg_count
+native def arg(index: int) -> string = pyrite_arg

@@ -25,17 +25,26 @@ typedef struct {
 
 typedef PyriteBytes PyriteBytesBuilder;
 typedef struct PyriteClassObject PyriteClassObject;
+typedef struct PyriteAny PyriteAny;
+
+typedef struct {
+    PyriteAny *items;
+    size_t len;
+    size_t cap;
+} PyriteAnyList;
 
 typedef enum {
+    PYRITE_ANY_NONE,
     PYRITE_ANY_INT,
     PYRITE_ANY_FLOAT,
     PYRITE_ANY_BOOL,
     PYRITE_ANY_STRING,
     PYRITE_ANY_BYTES,
+    PYRITE_ANY_LIST,
     PYRITE_ANY_CLASS
 } PyriteAnyKind;
 
-typedef struct {
+struct PyriteAny {
     PyriteAnyKind kind;
     union {
         long i;
@@ -43,15 +52,10 @@ typedef struct {
         int b;
         char *s;
         PyriteBytes bytes;
+        PyriteAnyList *list;
         PyriteClassObject *obj;
     } as;
-} PyriteAny;
-
-typedef struct {
-    PyriteAny *items;
-    size_t len;
-    size_t cap;
-} PyriteAnyList;
+};
 
 typedef struct {
     char *key;
@@ -74,6 +78,18 @@ static PyriteAny pyrite_any_clone(PyriteAny value);
 static void pyrite_release_any(PyriteAny *value);
 static char *pyrite_any_string(PyriteAny value);
 static char *pyrite_promote_string(const char *s);
+static PyriteAnyList pyrite_list_any_copy(PyriteAnyList list);
+static PyriteAnyList *pyrite_list_any_box(PyriteAnyList list);
+static char *pyrite_list_any_string(PyriteAnyList *list);
+
+static long pyrite_arg_count(void) {
+    return 0;
+}
+
+static char *pyrite_arg(long index) {
+    (void)index;
+    return "";
+}
 
 typedef struct {
     char *name;
@@ -164,6 +180,26 @@ static size_t pyrite_strlen(const char *s) {
     return n;
 }
 
+static int pyrite_ascii_space(unsigned char ch) {
+    return ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' || ch == '\v' || ch == '\f';
+}
+
+static int pyrite_ascii_digit(unsigned char ch) {
+    return ch >= '0' && ch <= '9';
+}
+
+static int pyrite_ascii_alpha(unsigned char ch) {
+    return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+}
+
+static char pyrite_ascii_upper(unsigned char ch) {
+    return (ch >= 'a' && ch <= 'z') ? (char)(ch - 32) : (char)ch;
+}
+
+static char pyrite_ascii_lower(unsigned char ch) {
+    return (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : (char)ch;
+}
+
 static long pyrite_string_len(const char *s) {
     return (long)pyrite_strlen(s);
 }
@@ -222,6 +258,50 @@ static long pyrite_string_byte_at(const char *s, long index) {
     return (long)(unsigned char)s[index];
 }
 
+static char *pyrite_string_lstrip(const char *s) {
+    if (!s) s = "";
+    size_t start = 0;
+    size_t len = pyrite_strlen(s);
+    while (start < len && pyrite_ascii_space((unsigned char)s[start])) start++;
+    return pyrite_string_slice(s, (long)start, (long)len);
+}
+
+static char *pyrite_string_rstrip(const char *s) {
+    if (!s) s = "";
+    size_t end = pyrite_strlen(s);
+    while (end > 0 && pyrite_ascii_space((unsigned char)s[end - 1])) end--;
+    return pyrite_string_slice(s, 0, (long)end);
+}
+
+static char *pyrite_string_strip(const char *s) {
+    if (!s) s = "";
+    size_t start = 0;
+    size_t end = pyrite_strlen(s);
+    while (start < end && pyrite_ascii_space((unsigned char)s[start])) start++;
+    while (end > start && pyrite_ascii_space((unsigned char)s[end - 1])) end--;
+    return pyrite_string_slice(s, (long)start, (long)end);
+}
+
+static char *pyrite_string_upper(const char *s) {
+    if (!s) s = "";
+    size_t len = pyrite_strlen(s);
+    char *out = pyrite_malloc(len + 1);
+    if (!out) return "";
+    for (size_t i = 0; i < len; i++) out[i] = pyrite_ascii_upper((unsigned char)s[i]);
+    out[len] = '\0';
+    return out;
+}
+
+static char *pyrite_string_lower(const char *s) {
+    if (!s) s = "";
+    size_t len = pyrite_strlen(s);
+    char *out = pyrite_malloc(len + 1);
+    if (!out) return "";
+    for (size_t i = 0; i < len; i++) out[i] = pyrite_ascii_lower((unsigned char)s[i]);
+    out[len] = '\0';
+    return out;
+}
+
 static int pyrite_string_startswith(const char *s, const char *prefix) {
     if (!s) s = "";
     if (!prefix) prefix = "";
@@ -243,6 +323,107 @@ static long pyrite_string_find(const char *s, const char *needle) {
         if (j == needle_len) return (long)i;
     }
     return -1;
+}
+
+static int pyrite_string_contains(const char *s, const char *needle) {
+    return pyrite_string_find(s, needle) >= 0;
+}
+
+static int pyrite_string_endswith(const char *s, const char *suffix) {
+    if (!s) s = "";
+    if (!suffix) suffix = "";
+    size_t len = pyrite_strlen(s);
+    size_t suffix_len = pyrite_strlen(suffix);
+    if (suffix_len > len) return 0;
+    for (size_t i = 0; i < suffix_len; i++) {
+        if (s[len - suffix_len + i] != suffix[i]) return 0;
+    }
+    return 1;
+}
+
+static char *pyrite_string_replace(const char *s, const char *old, const char *replacement) {
+    if (!s) s = "";
+    if (!old) old = "";
+    if (!replacement) replacement = "";
+    size_t old_len = pyrite_strlen(old);
+    if (old_len == 0) return pyrite_promote_string(s);
+    size_t repl_len = pyrite_strlen(replacement);
+    size_t count = 0;
+    const char *p = s;
+    while (*p) {
+        size_t j = 0;
+        while (j < old_len && p[j] && p[j] == old[j]) j++;
+        if (j == old_len) {
+            count++;
+            p += old_len;
+        } else {
+            p++;
+        }
+    }
+    size_t len = pyrite_strlen(s);
+    size_t out_len = repl_len >= old_len ? len + count * (repl_len - old_len) : len - count * (old_len - repl_len);
+    char *out = pyrite_malloc(out_len + 1);
+    if (!out) return "";
+    char *dst = out;
+    p = s;
+    while (*p) {
+        size_t j = 0;
+        while (j < old_len && p[j] && p[j] == old[j]) j++;
+        if (j == old_len) {
+            pyrite_memcpy(dst, replacement, repl_len);
+            dst += repl_len;
+            p += old_len;
+        } else {
+            *dst++ = *p++;
+        }
+    }
+    *dst = '\0';
+    return out;
+}
+
+static long pyrite_string_to_int(const char *s) {
+    if (!s) return 0;
+    while (pyrite_ascii_space((unsigned char)*s)) s++;
+    int sign = 1;
+    if (*s == '-') {
+        sign = -1;
+        s++;
+    } else if (*s == '+') {
+        s++;
+    }
+    long value = 0;
+    while (pyrite_ascii_digit((unsigned char)*s)) {
+        value = value * 10 + (long)(*s - '0');
+        s++;
+    }
+    return value * sign;
+}
+
+static int pyrite_string_is_digit(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_digit((unsigned char)*s)) return 0;
+    return 1;
+}
+
+static int pyrite_string_is_alpha(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_alpha((unsigned char)*s)) return 0;
+    return 1;
+}
+
+static int pyrite_string_is_alnum(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) {
+        unsigned char ch = (unsigned char)*s;
+        if (!pyrite_ascii_alpha(ch) && !pyrite_ascii_digit(ch)) return 0;
+    }
+    return 1;
+}
+
+static int pyrite_string_is_space(const char *s) {
+    if (!s || !*s) return 0;
+    for (; *s; s++) if (!pyrite_ascii_space((unsigned char)*s)) return 0;
+    return 1;
 }
 
 int strcmp(const char *left, const char *right) {
@@ -472,6 +653,12 @@ static PyriteAnyList pyrite_list_any_copy(PyriteAnyList list) {
     out.cap = list.len;
     for (size_t i = 0; i < list.len; i++) out.items[i] = pyrite_any_clone(list.items[i]);
     return out;
+}
+static PyriteAnyList *pyrite_list_any_box(PyriteAnyList list) {
+    PyriteAnyList *boxed = pyrite_malloc(sizeof(PyriteAnyList));
+    if (!boxed) return 0;
+    *boxed = pyrite_list_any_copy(list);
+    return boxed;
 }
 static long pyrite_list_any_len(PyriteAnyList list) { return (long)list.len; }
 static PyriteAny pyrite_list_any_get(PyriteAnyList list, long index) {
@@ -796,8 +983,12 @@ static char *pyrite_any_string(PyriteAny value) {
         return value.as.s ? value.as.s : "";
     case PYRITE_ANY_BYTES:
         return pyrite_bytes_to_string(value.as.bytes);
+    case PYRITE_ANY_LIST:
+        return value.as.list ? pyrite_list_any_string(value.as.list) : "[]";
     case PYRITE_ANY_CLASS:
         return value.as.obj && value.as.obj->class_name ? value.as.obj->class_name : "<object>";
+    case PYRITE_ANY_NONE:
+        return "None";
     default:
         return "";
     }
@@ -823,6 +1014,7 @@ static int pyrite_any_as_bool(PyriteAny value) {
     if (value.kind == PYRITE_ANY_FLOAT) return value.as.f != 0.0;
     if (value.kind == PYRITE_ANY_STRING) return value.as.s && value.as.s[0] != '\0';
     if (value.kind == PYRITE_ANY_BYTES) return value.as.bytes.len != 0;
+    if (value.kind == PYRITE_ANY_LIST) return value.as.list && value.as.list->len != 0;
     return value.kind == PYRITE_ANY_CLASS && value.as.obj != 0;
 }
 
@@ -834,6 +1026,11 @@ static char *pyrite_any_as_string(PyriteAny value) {
 static PyriteBytes pyrite_any_as_bytes(PyriteAny value) {
     if (value.kind == PYRITE_ANY_BYTES) return pyrite_bytes_copy(value.as.bytes);
     return (PyriteBytes){0};
+}
+
+static PyriteAnyList pyrite_any_as_list(PyriteAny value) {
+    if (value.kind == PYRITE_ANY_LIST && value.as.list) return pyrite_list_any_copy(*value.as.list);
+    return (PyriteAnyList){0};
 }
 
 static PyriteClassObject *pyrite_any_as_class(PyriteAny value, const char *class_name) {
@@ -900,6 +1097,9 @@ static PyriteAny pyrite_any_clone(PyriteAny value) {
     }
     if (value.kind == PYRITE_ANY_BYTES) {
         return (PyriteAny){.kind=PYRITE_ANY_BYTES, .as.bytes=pyrite_bytes_copy(value.as.bytes)};
+    }
+    if (value.kind == PYRITE_ANY_LIST) {
+        return (PyriteAny){.kind=PYRITE_ANY_LIST, .as.list=value.as.list ? pyrite_list_any_box(*value.as.list) : 0};
     }
     return value;
 }

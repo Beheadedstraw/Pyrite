@@ -9,8 +9,9 @@ small compiled runtime.
 ## Modules
 
 - [Language Basics](language.md): imports, variables, typing, constants, globals
+- [Self-Hosting](self-hosting.md): the Pyrite-written `pyritec2` bootstrap compiler
 - [Native Bindings](native-bindings.md): writing Pyrite modules backed by runtime C
-- [Freestanding Kernel Target](freestanding.md): compiling Pyrite into a kernel object and Artemis program image
+- [Freestanding Kernel Target](freestanding.md): compiling Pyrite into a custom kernel object and custom user-program image
 - [Functions And Control Flow](functions-control-flow.md): `def`, returns,
   `if`, `while`, loops, `try` / `except`
 - [Concurrency And Routines](concurrency.md): `routine(...)`, `mux()`, locking
@@ -32,3 +33,8 @@ module globals.
 Standard APIs such as files, sockets, regex, random, routine locks, JSON, and
 XML now enter through `.pyr` modules. Unsupported syntax fails at compile time
 instead of being silently ignored.
+
+The compiler frontend now uses a lexer/parser, AST statements and expressions,
+semantic validation, retained module state, and a first HIR layer. A
+Pyrite-written compiler seed lives in `src/pyritec2` and currently compiles a
+small starter subset to C.
