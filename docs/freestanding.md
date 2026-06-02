@@ -1,6 +1,6 @@
-# Freestanding Kernel Target
+# Freestanding Custom Kernel Target
 
-Pyrite can emit a freestanding object file for kernel experiments:
+Pyrite can emit a freestanding object file for custom kernel experiments:
 
 ```sh
 build/pyritec --target freestanding examples/kernel_hello.pyr -o build/kernel_hello.o
@@ -16,7 +16,7 @@ The freestanding target emits:
   `-fno-pic`, `-mno-red-zone`, and `-c`
 - weak hooks named `pyrite_kernel_putchar` and `pyrite_kernel_hang`
 
-A real kernel should provide those hooks from C or assembly:
+A custom kernel should provide those hooks from C or assembly:
 
 ```c
 void pyrite_kernel_putchar(int ch) {
@@ -92,14 +92,15 @@ Current bindings:
 The built-in `print(...)` also works in freestanding mode and writes through
 `pyrite_kernel_putchar`.
 
-## Artemis Program Target
+## Custom User Program Target
 
-Pyrite also has an Artemis user-program image target:
+Pyrite also has a custom user-program image target:
 
 ```sh
-build/pyritec --target artemis programs/hello.pyr -o build/programs/hello.apx
+build/pyritec --target <custom-program-target> programs/hello.pyr -o build/programs/hello.apx
 ```
 
-This target emits an `ARTNAT1` native image for Artemis OS. The current user
-program subset supports a simple `return N` from `main`; `print("...")` is
-rejected until Artemis exposes user-space stdout syscalls.
+This target emits an `ARTNAT1` native image for the custom kernel user-program
+loader. The current user-program subset supports a simple `return N` from
+`main`; `print("...")` is rejected until the custom kernel exposes user-space
+stdout syscalls.

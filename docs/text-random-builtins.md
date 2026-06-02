@@ -90,6 +90,11 @@ Current support:
 - `value.at(index) -> string`
 - `value[index] -> string`
 - `value.byte(index) -> int`
+- `value.to_int() -> int`
+- `value.is_digit() -> bool`
+- `value.is_alpha() -> bool`
+- `value.is_alnum() -> bool`
+- `value.is_space() -> bool`
 
 The same operations are also available as `strings.strip(value)`,
 `strings.upper(value)`, `strings.replace(value, old, replacement)`, and so on.
@@ -232,3 +237,7 @@ seconds and returns `0`.
 - `set() -> set`
 - `string_builder() -> string_builder`
 - `bytes_builder() -> bytes_builder`
+- `sys.arg_count() -> int`
+- `sys.arg(index: int) -> string`
+
+The `sys.*` helpers require `import sys`.
